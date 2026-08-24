@@ -1,15 +1,15 @@
-/* Corner Counter POS — Modern Design System & Theme Engine */
+/* Corner Counter POS — Modern Design System & Cosmic Star Theme Engine */
 :root {
-  /* Dark Theme (Default) */
+  /* Dark Cosmic Theme (Default) */
   --bg: #090d16;
   --bg-subtle: #0f172a;
-  --surface: #131d31;
-  --surface-raised: #1e293b;
-  --surface-hover: #27354f;
-  --surface-active: #334155;
-  --border: #1e293b;
+  --surface: rgba(19, 29, 49, 0.82);
+  --surface-raised: rgba(30, 41, 59, 0.88);
+  --surface-hover: rgba(39, 53, 79, 0.95);
+  --surface-active: rgba(51, 65, 85, 0.95);
+  --border: rgba(30, 41, 59, 0.85);
   --border-focus: #06b6d4;
-  --border-light: rgba(255, 255, 255, 0.08);
+  --border-light: rgba(255, 255, 255, 0.1);
 
   --text-primary: #f8fafc;
   --text-secondary: #94a3b8;
@@ -18,13 +18,13 @@
 
   --emerald: #10b981;
   --emerald-light: #34d399;
-  --emerald-glow: rgba(16, 185, 129, 0.22);
+  --emerald-glow: rgba(16, 185, 129, 0.25);
   --cyan: #06b6d4;
-  --cyan-glow: rgba(6, 182, 212, 0.22);
+  --cyan-glow: rgba(6, 182, 212, 0.25);
   --amber: #f59e0b;
-  --amber-glow: rgba(245, 158, 11, 0.22);
+  --amber-glow: rgba(245, 158, 11, 0.25);
   --rose: #f43f5e;
-  --rose-glow: rgba(244, 63, 94, 0.22);
+  --rose-glow: rgba(244, 63, 94, 0.25);
   --violet: #8b5cf6;
   --indigo: #6366f1;
 
@@ -51,13 +51,13 @@
 [data-theme="light"] {
   --bg: #f1f5f9;
   --bg-subtle: #e2e8f0;
-  --surface: #ffffff;
-  --surface-raised: #f8fafc;
-  --surface-hover: #e2e8f0;
+  --surface: rgba(255, 255, 255, 0.88);
+  --surface-raised: rgba(248, 250, 252, 0.92);
+  --surface-hover: rgba(226, 232, 240, 0.95);
   --surface-active: #cbd5e1;
   --border: #cbd5e1;
   --border-focus: #0284c7;
-  --border-light: rgba(0, 0, 0, 0.06);
+  --border-light: rgba(0, 0, 0, 0.08);
 
   --text-primary: #0f172a;
   --text-secondary: #475569;
@@ -99,6 +99,17 @@ html, body {
   overflow: hidden;
 }
 
+/* Cosmic Continuous Starfield Canvas */
+.cosmic-stars-canvas {
+  position: fixed;
+  inset: 0;
+  width: 100vw;
+  height: 100vh;
+  pointer-events: none;
+  z-index: 0;
+  opacity: 0.95;
+}
+
 button, input, select, textarea {
   font-family: inherit;
   color: inherit;
@@ -131,14 +142,15 @@ input, select {
   flex-direction: column;
   position: relative;
   overflow: hidden;
-  background: var(--bg);
+  background: transparent;
   margin: 0 auto;
   max-width: 1440px;
+  z-index: 2;
 }
 
 @media (max-width: 859px) {
   #app {
-    max-width: 520px;
+    max-width: 540px;
   }
 }
 
@@ -404,14 +416,36 @@ input, select {
   }
 }
 
-/* Main Workspace Layout (Adaptive Dual-Pane for Desktop/Tablet) */
+/* Main Workspace Layout (Adaptive Dual-Pane for Desktop/Tablet & Scrollable Mobile) */
 .body-scroll {
   flex: 1;
+  min-height: 0;
   overflow-y: auto;
-  padding-bottom: 90px;
+  overflow-x: hidden;
   -webkit-overflow-scrolling: touch;
+  touch-action: pan-y;
+  overscroll-behavior-y: contain;
+  padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 110px);
   display: flex;
   flex-direction: column;
+}
+
+@media (max-width: 859px) {
+  .pos-dual-container {
+    display: flex;
+    flex-direction: column;
+    width: 100%;
+    min-height: 0;
+  }
+
+  .pos-catalog-pane {
+    padding: 12px 14px 28px;
+    width: 100%;
+  }
+
+  .pos-order-pane {
+    display: none;
+  }
 }
 
 @media (min-width: 860px) {
@@ -432,6 +466,7 @@ input, select {
     overflow-y: auto;
     padding: 20px;
     border-right: 1px solid var(--border);
+    -webkit-overflow-scrolling: touch;
   }
 
   .pos-order-pane {

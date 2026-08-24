@@ -99,13 +99,140 @@ app.get("/api/health", healthHandler);
 // Remote Company Management API Endpoints (Super Admin)
 // ——————————————————————————————
 
-// Get all companies from Cloud Master DB
+// Get all companies & connected devices from Cloud Master DB
 app.get("/api/companies", (req, res) => {
   res.json({
     success: true,
     companies: db.companies || [],
     deletedCompanyIds: db.deletedCompanyIds || [],
+    devices: db.devices || {},
+    devicesCount: Object.keys(db.devices || {}).length,
     lastSyncedAt: db.lastSyncedAt || Date.now()
+  });
+});
+
+// Create new company remotely (Super Admin)
+app.post("/api/companies/create", (req, res) => {
+  const { company } = req.body || {};
+  if (!company || !company.name || !company.id) {
+    return res.status(400).json({ error: "Invalid company payload" });
+  }
+
+  db.companies = db.companies || [];
+  db.deletedCompanyIds = db.deletedCompanyIds || [];
+
+  // Remove from deleted tracking if reusing
+  db.deletedCompanyIds = db.deletedCompanyIds.filter(id => id !== company.id);
+
+  const existingIdx = db.companies.findIndex(c => c.id === company.id);
+  if (existingIdx >= 0) {
+    db.companies[existingIdx] = { ...db.companies[existingIdx], ...company };
+  } else {
+    db.companies.push(company);
+  }
+
+  db.lastSyncedAt = Date.now();
+  saveDB(db);
+
+  console.log(`[Remote Create] Super Admin created new company '${company.name}' (${company.id}) on Cloud Server`);
+
+  res.json({
+    success: true,
+    message: `Company '${company.name}' created on Cloud Server`,
+    companies: db.companies,
+    lastSyncedAt: db.lastSyncedAt
+  });
+});
+
+// Update company status remotely (Active / Deactivated)
+app.post("/api/companies/status", (req, res) => {
+  const { companyId, status } = req.body || {};
+  if (!companyId || !status) {
+    return res.status(400).json({ error: "Missing companyId or status" });
+  }
+
+  const comp = (db.companies || []).find(c => c.id === companyId);
+  if (!comp) {
+    return res.status(404).json({ error: "Company not found" });
+  }
+
+  comp.subscription = comp.subscription || { plan: "standard", startAt: Date.now(), expiresAt: Date.now() + 86400000 * 30 };
+  comp.subscription.status = status;
+  db.lastSyncedAt = Date.now();
+  saveDB(db);
+
+  console.log(`[Remote Status] Super Admin set status of '${comp.name}' to '${status}'`);
+
+  res.json({
+    success: true,
+    message: `Status updated to ${status}`,
+    company: comp,
+    companies: db.companies,
+    lastSyncedAt: db.lastSyncedAt
+  });
+});
+
+// Update company subscription remotely (Tier / Expiration)
+app.post("/api/companies/subscription", (req, res) => {
+  const { companyId, plan, status, days } = req.body || {};
+  if (!companyId) {
+    return res.status(400).json({ error: "Missing companyId" });
+  }
+
+  const comp = (db.companies || []).find(c => c.id === companyId);
+  if (!comp) {
+    return res.status(404).json({ error: "Company not found" });
+  }
+
+  const now = Date.now();
+  const base = comp.subscription && comp.subscription.expiresAt && comp.subscription.expiresAt > now ? comp.subscription.expiresAt : now;
+  comp.subscription = comp.subscription || {};
+  if (plan) comp.subscription.plan = plan;
+  if (status) comp.subscription.status = status;
+  if (days && days > 0) {
+    comp.subscription.expiresAt = base + days * 24 * 60 * 60 * 1000;
+  }
+  db.lastSyncedAt = Date.now();
+  saveDB(db);
+
+  console.log(`[Remote Subscription] Super Admin updated subscription for '${comp.name}'`);
+
+  res.json({
+    success: true,
+    message: `Subscription updated`,
+    company: comp,
+    companies: db.companies,
+    lastSyncedAt: db.lastSyncedAt
+  });
+});
+
+// Update staff password remotely (or self change password)
+app.post("/api/companies/password", (req, res) => {
+  const { companyId, username, newPassword } = req.body || {};
+  if (!companyId || !username || !newPassword) {
+    return res.status(400).json({ error: "Missing required fields" });
+  }
+
+  const comp = (db.companies || []).find(c => c.id === companyId);
+  if (!comp) {
+    return res.status(404).json({ error: "Company not found" });
+  }
+
+  const staff = (comp.staff || []).find(s => s.username.toLowerCase() === username.toLowerCase());
+  if (!staff) {
+    return res.status(404).json({ error: "User not found in company" });
+  }
+
+  staff.password = newPassword;
+  db.lastSyncedAt = Date.now();
+  saveDB(db);
+
+  console.log(`[Remote Password Change] Password updated for user '${username}' in company '${comp.name}'`);
+
+  res.json({
+    success: true,
+    message: `Password updated successfully`,
+    lastSyncedAt: db.lastSyncedAt
   });
 });
 

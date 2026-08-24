@@ -1,5 +1,5 @@
 // Offline-First PWA Service Worker for Corner Counter POS
-const CACHE_NAME = "corner-counter-v10-network-first";
+const CACHE_NAME = "corner-counter-v11-network-first";
 
 const ASSETS = [
   "./",
@@ -9,7 +9,8 @@ const ASSETS = [
   "./js/storage.js",
   "./js/audio.js",
   "./js/confetti.js",
-  "./js/app.js?v=10",
+  "./js/stars.js",
+  "./js/app.js?v=6",
   "./icons/favicon-16.png",
   "./icons/favicon-32.png",
   "./icons/icon-192.png",

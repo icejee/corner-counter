@@ -40,6 +40,7 @@ const ICONS = {
   note: '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>',
   shield: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>',
   mobileApp: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="14" height="20" x="5" y="2" rx="2" ry="2"/><path d="M12 18h.01"/><path d="m9 11 3 3 3-3"/><path d="M12 6v8"/></svg>',
+  key: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="7.5" cy="15.5" r="5.5"/><path d="m21 2-9.6 9.6"/><path d="m15.5 7.5 3 3L22 7l-3-3"/></svg>',
 };
 
 const SEED_PRODUCTS = [];
@@ -54,6 +55,7 @@ const KEYS = {
   cloudBackup: "cc_cloud_store_v1",
   lastSyncTime: "cc_last_sync_time_v1",
   deletedCompanyIds: "cc_deleted_company_ids_v1",
+  superadminPw: "cc_superadmin_pw_v1",
 };
 
 const DEFAULT_SETTINGS = {
@@ -101,6 +103,7 @@ const state = {
   syncStatus: typeof navigator !== "undefined" && !navigator.onLine
     ? "offline_pending"
     : (Storage.get(KEYS.pendingSync, []).length > 0 ? "offline_pending" : "synced"),
+  remoteDevicesCount: 1,
 
   // Products & Sales for current session
   products: [],
@@ -135,6 +138,8 @@ const state = {
   staffForm: null,
   subscriptionForm: null,
   settingsModal: false,
+  passwordModal: false,
+  remoteResetStaffModal: null,
   itemNoteModal: null,
   installModalOpen: false,
   analyticsTimeframe: "today", // 'today' | 'yesterday' | 'week' | 'month' | 'all'
@@ -308,6 +313,7 @@ async function pullFromCloud(silent = false) {
             }
             state.syncStatus = "synced";
             state.lastSyncTime = data.lastSyncedAt || Date.now();
+            state.remoteDevicesCount = data.devicesCount || (data.devices ? Object.keys(data.devices).length : 1);
             Storage.set(KEYS.lastSyncTime, state.lastSyncTime);
             if (!silent) showToast("Cloud data synced across devices ☁️");
 
@@ -941,8 +947,9 @@ function loginUser(username, password) {
   const trimmedPass = String(password || "");
 
   // Superadmin credentials
-  if (trimmedUser === "JOESH" && trimmedPass === "@Icejee01") {
-    state.session = { role: "superadmin", username: "JOESH" };
+  const masterSuperPw = Storage.get(KEYS.superadminPw, "@Icejee01");
+  if (trimmedUser === "JOESH" && trimmedPass === masterSuperPw) {
+    state.session = { role: "superadmin", username: "JOESH", displayName: "Super Admin" };
     state.screen = "admin";
     state.cart = [];
     state.loginForm.error = "";
@@ -1135,7 +1142,9 @@ function renderApp() {
       (state.companyForm ? renderCompanyForm() : "") +
       (state.staffForm ? renderStaffForm() : "") +
       (state.subscriptionForm ? renderSubscriptionForm() : "") +
-      (state.settingsModal ? renderSettingsModal() : "");
+      (state.settingsModal ? renderSettingsModal() : "") +
+      (state.passwordModal ? renderChangePasswordModal() : "") +
+      (state.remoteResetStaffModal ? renderRemoteResetModal() : "");
     attachDynamicListeners();
     return;
   }
@@ -1158,6 +1167,8 @@ function renderApp() {
     (state.staffForm ? renderStaffForm() : "") +
     (state.subscriptionForm ? renderSubscriptionForm() : "") +
     (state.settingsModal ? renderSettingsModal() : "") +
+    (state.passwordModal ? renderChangePasswordModal() : "") +
+    (state.remoteResetStaffModal ? renderRemoteResetModal() : "") +
     (state.itemNoteModal ? renderItemNoteModal() : "") +
     (state.installModalOpen ? renderInstallModal() : "");
 
@@ -1219,6 +1230,7 @@ function renderHeader() {
     syncPill +
     '<button class="icon-btn" data-action="toggle-theme" title="Toggle Theme">' + themeIcon + '</button>' +
     '<button class="icon-btn" data-action="toggle-sound" title="Toggle Sound">' + soundIcon + '</button>' +
+    '<button class="icon-btn" data-action="open-password-modal" title="Change Password">' + ICONS.key + '</button>' +
     '<button class="icon-btn" data-action="open-settings" title="Settings">' + ICONS.settings + '</button>' +
     '<div class="status-pill ' + (state.online ? "online" : "offline") + '">' +
     (state.online ? ICONS.wifi : ICONS.wifiOff) +
@@ -1882,19 +1894,36 @@ function renderManageStaff() {
   );
 }
 
-// ---------- Superadmin Screen ----------
+// ---------- Superadmin Screen (Remote Cloud Company & Terminal Manager) ----------
 function renderAdminScreen() {
+  const activeComps = state.companies.filter(c => getSubscriptionInfo(c).status === "active").length;
+  const deactComps = state.companies.filter(c => getSubscriptionInfo(c).status === "deactivated").length;
+  const expiredComps = state.companies.filter(c => getSubscriptionInfo(c).status === "expired" || getSubscriptionInfo(c).status === "expiring").length;
+  const totalRevenue = state.companies.reduce((sum, c) => sum + (c.sales || []).reduce((s, x) => s + x.total, 0), 0);
+
   return (
     '<div class="screen admin-screen">' +
-    '<div class="screen-header-row"><div class="screen-title">Companies & Subscriptions</div>' +
-    '<div style="display:flex;gap:8px;align-items:center;">' +
-    '<button class="pill-btn" style="background:var(--surface-raised);border:1px solid var(--border);" data-action="manual-cloud-sync">☁️ Sync Cloud</button>' +
-    '<button class="pill-btn" data-action="open-company-form">' + ICONS.plus + ' Add Company</button>' +
+    '<div class="screen-header-row">' +
+    '<div><div class="screen-title">Cloud Company & Terminal Manager</div>' +
+    '<div style="font-size:12px;color:var(--text-muted);margin-top:2px;">Master Remote Control · Real-Time Multi-Device Sync</div></div>' +
+    '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">' +
+    '<button class="pill-btn" style="background:var(--surface-raised);border:1px solid var(--border);" data-action="manual-cloud-sync" title="Pull and push latest data from cloud server">🔄 Refresh Cloud</button>' +
+    '<button class="pill-btn" data-action="open-company-form">' + ICONS.plus + ' Add Company Remotely</button>' +
+    '<button class="mini-btn" data-action="open-password-modal" title="Change Superadmin Password">' + ICONS.key + ' Master Key</button>' +
     '</div></div>' +
+
+    // Live Remote Stats Grid
+    '<div class="kpi-grid" style="margin-bottom:18px;">' +
+    '<div class="kpi-card"><span class="kpi-label">Registered Companies</span><span class="kpi-value">' + state.companies.length + '</span><span class="kpi-sub">🏢 Cloud Master DB</span></div>' +
+    '<div class="kpi-card"><span class="kpi-label">Active POS Terminals</span><span class="kpi-value">' + activeComps + '</span><span class="kpi-sub">🟢 Service Online</span></div>' +
+    '<div class="kpi-card"><span class="kpi-label">Suspended / Expired</span><span class="kpi-value">' + (deactComps + expiredComps) + '</span><span class="kpi-sub">⛔ Deactivated / Due</span></div>' +
+    '<div class="kpi-card"><span class="kpi-label">Global Network Revenue</span><span class="kpi-value">' + money(totalRevenue) + '</span><span class="kpi-sub">💰 All stores total</span></div>' +
+    '</div>' +
+
     '<div class="company-list">' +
     state.companies
       .map((company) => {
-        const revenue = company.sales.reduce((sum, sale) => sum + sale.total, 0);
+        const revenue = (company.sales || []).reduce((sum, sale) => sum + sale.total, 0);
         const subInfo = getSubscriptionInfo(company);
         const isDeactivated = subInfo.isDeactivated;
 
@@ -1902,29 +1931,30 @@ function renderAdminScreen() {
           '<div class="company-card">' +
           '<div class="company-card-head">' +
           '<div>' +
-          '<div class="company-name">' + esc(company.name) + '</div>' +
-          '<div class="company-meta">' + company.staff.length + ' staff · ' + company.products.length + ' products</div>' +
-          '<div class="company-subscription">' + renderSubscriptionStatus(company) + '</div>' +
+          '<div class="company-name">' + esc(company.name) + ' <span style="font-size:11px;font-family:var(--font-mono);color:var(--text-muted);font-weight:normal;">(ID: ' + esc(company.id) + ')</span></div>' +
+          '<div class="company-meta">' + (company.staff || []).length + ' staff · ' + (company.products || []).length + ' products · ' + (company.sales || []).length + ' sales</div>' +
+          '<div class="company-subscription" style="margin-top:6px;">' + renderSubscriptionStatus(company) + '</div>' +
           '</div>' +
-          '<div class="company-actions">' +
+          '<div class="company-actions" style="flex-wrap:wrap;">' +
           (isDeactivated
             ? '<button class="mini-btn success" data-action="toggle-company-status" data-id="' + company.id + '" data-status="active">🟢 Activate Service</button>'
             : '<button class="mini-btn danger" data-action="toggle-company-status" data-id="' + company.id + '" data-status="deactivated">⛔ Deactivate Service</button>') +
-          '<button class="mini-btn" data-action="open-subscription-form" data-id="' + company.id + '">⚙️ Manage Subscription</button>' +
-          '<button class="mini-btn" data-action="open-staff-form" data-id="' + company.id + '">Add Staff</button>' +
+          '<button class="mini-btn" data-action="open-subscription-form" data-id="' + company.id + '">⚙️ Subscription</button>' +
+          '<button class="mini-btn" data-action="open-staff-form" data-id="' + company.id + '">+ Staff</button>' +
           '<button class="mini-btn danger" data-action="delete-company" data-id="' + company.id + '">Delete</button>' +
           '</div></div>' +
           '<div class="company-summary">' +
-          '<div class="company-summary-box"><span>Sales Count</span><strong>' + company.sales.length + '</strong></div>' +
-          '<div class="company-summary-box"><span>Revenue</span><strong>' + money(revenue) + '</strong></div>' +
+          '<div class="company-summary-box"><span>Sales Count</span><strong>' + (company.sales || []).length + '</strong></div>' +
+          '<div class="company-summary-box"><span>Gross Revenue</span><strong>' + money(revenue) + '</strong></div>' +
           '</div>' +
           '<div class="staff-list">' +
-          company.staff
+          (company.staff || [])
             .map(
               (member) =>
-                '<div class="staff-row"><div><div class="staff-name">' + esc(member.name) + '</div>' +
+                '<div class="staff-row"><div><div class="staff-name">' + esc(member.name) + ' <span style="font-size:11px;color:var(--text-muted);">(' + (member.role || "staff") + ')</span></div>' +
                 '<div class="staff-user">@' + esc(member.username) + '</div></div>' +
-                '<button class="text-btn danger" data-action="delete-staff" data-company-id="' + company.id + '" data-id="' + member.id + '">Remove</button></div>'
+                '<div style="display:flex;gap:6px;"><button class="mini-btn" data-action="open-remote-reset" data-company-id="' + company.id + '" data-username="' + esc(member.username) + '" data-name="' + esc(member.name) + '">' + ICONS.key + ' Reset PW</button>' +
+                '<button class="text-btn danger" data-action="delete-staff" data-company-id="' + company.id + '" data-id="' + member.id + '">Remove</button></div></div>'
             )
             .join("") +
           '</div>' +
@@ -2108,6 +2138,11 @@ function renderSettingsModal() {
     '<button class="install-app-btn" style="width:100%;justify-content:center;" data-action="prompt-install-app">' + ICONS.mobileApp + ' Download & Install App</button>' +
     '</div>' +
     '<div style="margin-top:14px;padding:12px;background:var(--surface-raised);border-radius:12px;border:1px solid var(--border);">' +
+    '<div style="font-size:12px;font-weight:700;margin-bottom:6px;display:flex;align-items:center;gap:6px;">' + ICONS.key + ' Account Security & Password</div>' +
+    '<div style="font-size:12px;color:var(--text-muted);margin-bottom:10px;">Change your login password for this counter account.</div>' +
+    '<button class="pill-btn" style="width:100%;justify-content:center;" data-action="open-password-modal">' + ICONS.key + ' Change Account Password</button>' +
+    '</div>' +
+    '<div style="margin-top:14px;padding:12px;background:var(--surface-raised);border-radius:12px;border:1px solid var(--border);">' +
     '<div style="font-size:12px;font-weight:700;margin-bottom:8px;">Data Backup & Restore</div>' +
     '<div style="display:flex;gap:8px;">' +
     '<button class="mini-btn" data-action="backup-data">' + ICONS.download + ' Backup JSON</button>' +
@@ -2118,6 +2153,56 @@ function renderSettingsModal() {
     '<div class="sheet-footer" style="display:flex;gap:8px;">' +
     '<button class="mini-btn" style="flex:1;" data-action="close-settings">Close</button>' +
     '<button class="btn-teal" style="flex:2;" data-action="save-settings">Save Settings</button>' +
+    '</div>' +
+    '</div></div>'
+  );
+}
+
+function renderChangePasswordModal() {
+  if (!state.passwordModal) return "";
+
+  const isSuperadmin = state.session && state.session.role === "superadmin";
+  const username = state.session ? (state.session.displayName || state.session.username) : "User";
+
+  return (
+    '<div class="overlay"><div class="overlay-scrim"></div>' +
+    '<div class="sheet" style="max-width:420px;">' +
+    '<div class="sheet-header"><div class="sheet-title">Change Password (' + esc(username) + ')</div>' +
+    '<button class="sheet-close" data-action="close-password-modal" title="Close">' + ICONS.x + '</button></div>' +
+    '<div class="sheet-body">' +
+    '<div style="font-size:12px;color:var(--text-muted);margin-bottom:12px;">Ensure your new password is at least 4 characters long.</div>' +
+    '<label class="form-field"><span class="form-label">Current Password</span>' +
+    '<input id="curr-pass" class="form-input" type="password" placeholder="Enter current password" autocomplete="current-password" /></label>' +
+    '<label class="form-field"><span class="form-label">New Password</span>' +
+    '<input id="new-pass" class="form-input" type="password" placeholder="Minimum 4 characters" autocomplete="new-password" /></label>' +
+    '<label class="form-field"><span class="form-label">Confirm New Password</span>' +
+    '<input id="confirm-pass" class="form-input" type="password" placeholder="Re-enter new password" autocomplete="new-password" /></label>' +
+    '</div>' +
+    '<div class="sheet-footer" style="display:flex;gap:8px;">' +
+    '<button class="mini-btn" style="flex:1;" data-action="close-password-modal">Cancel</button>' +
+    '<button class="btn-teal" style="flex:2;" data-action="submit-change-password">Update Password 🔑</button>' +
+    '</div>' +
+    '</div></div>'
+  );
+}
+
+function renderRemoteResetModal() {
+  const m = state.remoteResetStaffModal;
+  if (!m) return "";
+
+  return (
+    '<div class="overlay"><div class="overlay-scrim"></div>' +
+    '<div class="sheet" style="max-width:400px;">' +
+    '<div class="sheet-header"><div class="sheet-title">Reset Password: @' + esc(m.username) + '</div>' +
+    '<button class="sheet-close" data-action="close-remote-reset" title="Close">' + ICONS.x + '</button></div>' +
+    '<div class="sheet-body">' +
+    '<div style="font-size:12px;color:var(--text-muted);margin-bottom:12px;">Set a new password for <strong>' + esc(m.name) + '</strong> in company <strong>' + esc(m.companyName) + '</strong>:</div>' +
+    '<label class="form-field"><span class="form-label">New Password</span>' +
+    '<input id="remote-new-pass" class="form-input" type="password" placeholder="Enter new password" /></label>' +
+    '</div>' +
+    '<div class="sheet-footer" style="display:flex;gap:8px;">' +
+    '<button class="mini-btn" style="flex:1;" data-action="close-remote-reset">Cancel</button>' +
+    '<button class="btn-teal" style="flex:2;" data-action="submit-remote-reset">Reset Password 🔑</button>' +
     '</div>' +
     '</div></div>'
   );
@@ -2815,6 +2900,131 @@ function attachAppEventHandlers() {
         render();
         break;
       }
+      case "open-password-modal":
+        state.passwordModal = true;
+        render();
+        break;
+      case "close-password-modal":
+        state.passwordModal = false;
+        render();
+        break;
+      case "submit-change-password": {
+        const currPass = (document.getElementById("curr-pass")?.value || "").trim();
+        const newPass = (document.getElementById("new-pass")?.value || "").trim();
+        const confirmPass = (document.getElementById("confirm-pass")?.value || "").trim();
+
+        if (!currPass || !newPass || !confirmPass) {
+          showToast("Please fill in all password fields");
+          return;
+        }
+        if (newPass.length < 4) {
+          showToast("New password must be at least 4 characters");
+          return;
+        }
+        if (newPass !== confirmPass) {
+          showToast("New passwords do not match");
+          return;
+        }
+
+        if (state.session && state.session.role === "superadmin") {
+          const masterSuperPw = Storage.get(KEYS.superadminPw, "@Icejee01");
+          if (currPass !== masterSuperPw) {
+            showToast("Current super admin password incorrect");
+            return;
+          }
+          Storage.set(KEYS.superadminPw, newPass);
+          showToast("Master Super Admin password updated! 🔑");
+          state.passwordModal = false;
+          render();
+          break;
+        }
+
+        const comp = getCurrentCompany();
+        if (!comp) {
+          showToast("Company session not found");
+          return;
+        }
+        const staffMem = (comp.staff || []).find((s) => s.username.toLowerCase() === (state.session.username || "").toLowerCase());
+        if (!staffMem) {
+          showToast("Staff account not found");
+          return;
+        }
+        if (staffMem.password !== currPass) {
+          showToast("Current password incorrect");
+          return;
+        }
+
+        staffMem.password = newPass;
+        persistCompanies();
+
+        // Broadcast to remote cloud server
+        fetch(`${NEXT_PUBLIC_API_URL}/api/companies/password`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            companyId: comp.id,
+            username: staffMem.username,
+            newPassword: newPass
+          })
+        }).catch(() => {});
+
+        syncWithCloud();
+        showToast("Password updated successfully! 🔑");
+        state.passwordModal = false;
+        render();
+        break;
+      }
+      case "open-remote-reset": {
+        const cid = btn.dataset.companyId;
+        const comp = state.companies.find((c) => c.id === cid);
+        state.remoteResetStaffModal = {
+          companyId: cid,
+          companyName: comp ? comp.name : "",
+          username: btn.dataset.username,
+          name: btn.dataset.name
+        };
+        render();
+        break;
+      }
+      case "close-remote-reset":
+        state.remoteResetStaffModal = null;
+        render();
+        break;
+      case "submit-remote-reset": {
+        if (!state.remoteResetStaffModal) return;
+        const newPass = (document.getElementById("remote-new-pass")?.value || "").trim();
+        if (!newPass || newPass.length < 4) {
+          showToast("Password must be at least 4 characters");
+          return;
+        }
+        const comp = state.companies.find((c) => c.id === state.remoteResetStaffModal.companyId);
+        if (!comp) {
+          showToast("Company not found");
+          return;
+        }
+        const mem = (comp.staff || []).find((s) => s.username.toLowerCase() === state.remoteResetStaffModal.username.toLowerCase());
+        if (mem) {
+          mem.password = newPass;
+          persistCompanies();
+        }
+
+        // Broadcast to cloud server
+        fetch(`${NEXT_PUBLIC_API_URL}/api/companies/password`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            companyId: comp.id,
+            username: state.remoteResetStaffModal.username,
+            newPassword: newPass
+          })
+        }).catch(() => {});
+
+        syncWithCloud();
+        showToast(`Password reset for @${state.remoteResetStaffModal.username} 🔑`);
+        state.remoteResetStaffModal = null;
+        render();
+        break;
+      }
       case "open-subscription-form": {
         const cid = btn.dataset.id;
         const comp = state.companies.find((c) => c.id === cid);
@@ -2865,13 +3075,27 @@ function attachAppEventHandlers() {
           comp.subscription.expiresAt = base + days * 24 * 60 * 60 * 1000;
         }
         persistCompanies();
+
+        // Broadcast to cloud server
+        fetch(`${NEXT_PUBLIC_API_URL}/api/companies/subscription`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            companyId: state.subscriptionForm.companyId,
+            plan,
+            status,
+            days
+          })
+        }).catch(() => {});
+
+        syncWithCloud();
         showToast(`Subscription updated (${status.toUpperCase()})`);
         state.subscriptionForm = null;
         render();
         break;
       }
       case "manual-cloud-sync":
-        syncWithCloud();
+        pullFromCloud(false);
         break;
       case "delete-company": {
         const cid = btn.dataset.id;
@@ -2889,9 +3113,17 @@ function attachAppEventHandlers() {
           }
           state.companies = state.companies.filter((c) => c.id !== cid);
           persistCompanies();
+
+          // Broadcast remote delete
+          fetch(`${NEXT_PUBLIC_API_URL}/api/companies/delete`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ companyId: cid })
+          }).catch(() => {});
+
           queuePendingSync("delete-company", { id: cid, name: comp.name });
           syncWithCloud();
-          showToast(`Company "${comp.name}" deleted and updated to cloud`);
+          showToast(`Company "${comp.name}" deleted and removed from cloud server`);
           render();
         }
         break;
@@ -2904,10 +3136,19 @@ function attachAppEventHandlers() {
         comp.subscription = comp.subscription || { plan: "standard", startAt: Date.now(), expiresAt: Date.now() + 86400000 * 30 };
         comp.subscription.status = newStatus;
         persistCompanies();
+
+        // Broadcast to cloud server
+        fetch(`${NEXT_PUBLIC_API_URL}/api/companies/status`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ companyId: cid, status: newStatus })
+        }).catch(() => {});
+
+        syncWithCloud();
         if (newStatus === "active") {
-          showToast(`Activated service for ${comp.name}`);
+          showToast(`Activated service for ${comp.name} 🟢`);
         } else {
-          showToast(`Deactivated service for ${comp.name}`);
+          showToast(`Deactivated service for ${comp.name} ⛔`);
         }
         render();
         break;
@@ -2950,7 +3191,16 @@ function attachAppEventHandlers() {
         };
         state.companies.push(newCompany);
         persistCompanies();
-        showToast("Company created");
+
+        // Broadcast new company to remote cloud server immediately
+        fetch(`${NEXT_PUBLIC_API_URL}/api/companies/create`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ company: newCompany })
+        }).catch(() => {});
+
+        syncWithCloud();
+        showToast(`Company "${cname}" created remotely & synced to cloud! ☁️`);
         state.companyForm = null;
         render();
         break;
