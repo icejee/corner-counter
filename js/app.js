@@ -924,6 +924,9 @@ function loginUser(username, password) {
     state.loginForm.password = "";
     persistSession();
     if (typeof PosAudio !== "undefined") PosAudio.playChime();
+    if (typeof navigator !== "undefined" && navigator.onLine) {
+      pullFromCloud(true);
+    }
     render();
     return true;
   }
@@ -1856,7 +1859,10 @@ function renderAdminScreen() {
   return (
     '<div class="screen admin-screen">' +
     '<div class="screen-header-row"><div class="screen-title">Companies & Subscriptions</div>' +
-    '<button class="pill-btn" data-action="open-company-form">' + ICONS.plus + ' Add Company</button></div>' +
+    '<div style="display:flex;gap:8px;align-items:center;">' +
+    '<button class="pill-btn" style="background:var(--surface-raised);border:1px solid var(--border);" data-action="manual-cloud-sync">☁️ Sync Cloud</button>' +
+    '<button class="pill-btn" data-action="open-company-form">' + ICONS.plus + ' Add Company</button>' +
+    '</div></div>' +
     '<div class="company-list">' +
     state.companies
       .map((company) => {
