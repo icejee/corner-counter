@@ -176,8 +176,30 @@ app.post("/api/sync", (req, res) => {
         if (db.deletedCompanyIds.includes(incomingComp.id)) return;
         const idx = db.companies.findIndex(c => c.id === incomingComp.id);
         if (idx >= 0) {
-          // If incoming company has newer or populated products/sales, update
-          db.companies[idx] = incomingComp;
+          const existing = db.companies[idx];
+
+          // Products: if incoming has products, update; otherwise preserve existing products
+          const incomingHasProds = Array.isArray(incomingComp.products) && incomingComp.products.length > 0;
+          const mergedProducts = incomingHasProds ? incomingComp.products : (existing.products || []);
+
+          // Staff: merge staff by username / ID
+          const staffMap = {};
+          (existing.staff || []).forEach(s => { if (s && (s.username || s.id)) staffMap[s.username || s.id] = s; });
+          (incomingComp.staff || []).forEach(s => { if (s && (s.username || s.id)) staffMap[s.username || s.id] = s; });
+
+          // Sales: merge sales by sale ID
+          const salesMap = {};
+          (existing.sales || []).forEach(s => { if (s && s.id) salesMap[s.id] = s; });
+          (incomingComp.sales || []).forEach(s => { if (s && s.id) salesMap[s.id] = s; });
+
+          db.companies[idx] = {
+            ...existing,
+            ...incomingComp,
+            products: mergedProducts,
+            staff: Object.values(staffMap),
+            sales: Object.values(salesMap),
+            subscription: incomingComp.subscription || existing.subscription
+          };
         } else {
           db.companies.push(incomingComp);
         }

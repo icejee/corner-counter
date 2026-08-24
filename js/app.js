@@ -286,24 +286,36 @@ async function pullFromCloud(silent = false) {
           const validCloud = cloudList.filter(c => c && c.id && !mergedDeleted.includes(c.id));
 
           if (validCloud.length > 0) {
-            const localStr = JSON.stringify(state.companies || []);
-            const cloudStr = JSON.stringify(validCloud);
-
-            if (localStr !== cloudStr) {
-              state.companies = validCloud;
-              Storage.set(KEYS.companies, validCloud);
-              if (!state.activeCompany || !validCloud.find(c => c.id === state.activeCompany.id)) {
-                state.activeCompany = validCloud[0];
-                Storage.set(KEYS.activeCompanyId, state.activeCompany.id);
+            const merged = [...validCloud];
+            (state.companies || []).forEach(localComp => {
+              if (localComp && localComp.id && !mergedDeleted.includes(localComp.id)) {
+                const existingIdx = merged.findIndex(c => c.id === localComp.id);
+                if (existingIdx === -1) {
+                  merged.push(localComp);
+                } else {
+                  if (Array.isArray(localComp.products) && localComp.products.length > 0 && (!merged[existingIdx].products || merged[existingIdx].products.length === 0)) {
+                    merged[existingIdx].products = localComp.products;
+                  }
+                }
               }
-              syncCurrentCompanyData();
-              state.syncStatus = "synced";
-              state.lastSyncTime = data.lastSyncedAt || Date.now();
-              Storage.set(KEYS.lastSyncTime, state.lastSyncTime);
-              if (!silent) showToast("Cloud data synced across devices ☁️");
-              try { render(); } catch (e) {}
-              return true;
+            });
+
+            state.companies = merged;
+            Storage.set(KEYS.companies, merged);
+            if (!state.activeCompany || !merged.find(c => c.id === state.activeCompany.id)) {
+              state.activeCompany = merged[0];
+              Storage.set(KEYS.activeCompanyId, state.activeCompany.id);
             }
+            syncCurrentCompanyData();
+            state.syncStatus = "synced";
+            state.lastSyncTime = data.lastSyncedAt || Date.now();
+            Storage.set(KEYS.lastSyncTime, state.lastSyncTime);
+            if (!silent) showToast("Cloud data synced across devices ☁️");
+            try { render(); } catch (e) {}
+            return true;
+          } else if (state.companies && state.companies.length > 0) {
+            // Cloud was empty (e.g. server restart), upload our local companies immediately
+            syncWithCloud(true);
           }
           state.syncStatus = "synced";
           return true;
