@@ -155,6 +155,8 @@ const CLOUD_API_BASE = (function() {
   return "https://corner-counter-2.onrender.com";
 })();
 
+let syncDebounceTimer = null;
+
 // Cloud Synchronization Engine Helpers
 function queuePendingSync(actionType, payload) {
   state.pendingSyncQueue.push({
@@ -195,76 +197,132 @@ async function syncWithCloud(isImmediate = false) {
     syncedAt: Date.now()
   };
 
-  try {
-    let cloudSynced = false;
-    if (typeof fetch === "function") {
-      const targetUrl = (CLOUD_API_BASE ? CLOUD_API_BASE : "") + "/api/sync";
-      const response = await fetch(targetUrl, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload)
-      });
-      if (response.ok) {
-        cloudSynced = true;
-        try {
-          const resData = await response.json();
-          if (resData && Array.isArray(resData.deletedCompanyIds)) {
-            const mergedDeleted = Array.from(new Set([...deletedIds, ...resData.deletedCompanyIds]));
-            Storage.set(KEYS.deletedCompanyIds, mergedDeleted);
-            state.companies = (state.companies || []).filter(c => !mergedDeleted.includes(c.id));
-            persistCompanies();
+  const targetUrls = Array.from(new Set([
+    (CLOUD_API_BASE ? CLOUD_API_BASE : "") + "/api/sync",
+    "/api/sync",
+    "https://corner-counter-2.onrender.com/api/sync"
+  ])).filter(u => !!u);
+
+  let cloudSynced = false;
+  let serverCompanies = null;
+
+  for (const url of targetUrls) {
+    try {
+      if (typeof fetch === "function") {
+        const response = await fetch(url, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload)
+        });
+        if (response.ok) {
+          cloudSynced = true;
+          try {
+            const resData = await response.json();
+            if (resData && Array.isArray(resData.deletedCompanyIds)) {
+              const mergedDeleted = Array.from(new Set([...deletedIds, ...resData.deletedCompanyIds]));
+              Storage.set(KEYS.deletedCompanyIds, mergedDeleted);
+              state.companies = (state.companies || []).filter(c => !mergedDeleted.includes(c.id));
+            }
+            if (resData && (Array.isArray(resData.cloudCompanies) || Array.isArray(resData.companies))) {
+              serverCompanies = resData.cloudCompanies || resData.companies;
+            }
+          } catch (e) {
+            console.warn("Could not parse cloud sync response JSON", e);
           }
-        } catch (e) {
-          console.warn("Could not parse cloud sync response JSON", e);
+          break; // Successfully synced to server
         }
       }
+    } catch (err) {
+      // Try next endpoint fallback
     }
-
-    const cloudData = {
-      companies: currentCompanies,
-      deletedCompanyIds: deletedIds,
-      syncedAt: Date.now(),
-      processedEvents: pendingEvents.length,
-      remoteSynced: cloudSynced
-    };
-
-    Storage.set(KEYS.cloudBackup, cloudData);
-    state.pendingSyncQueue = [];
-    Storage.set(KEYS.pendingSync, []);
-    state.lastSyncTime = Date.now();
-    Storage.set(KEYS.lastSyncTime, state.lastSyncTime);
-    state.syncStatus = "synced";
-
-    showToast("Cloud Sync Complete ☁️ All data updated");
-    try { render(); } catch (e) {}
-    return true;
-  } catch (err) {
-    console.warn("Cloud sync network notice:", err);
-    const cloudData = {
-      companies: currentCompanies,
-      deletedCompanyIds: deletedIds,
-      syncedAt: Date.now(),
-      processedEvents: pendingEvents.length,
-      remoteSynced: false
-    };
-    Storage.set(KEYS.cloudBackup, cloudData);
-    state.pendingSyncQueue = [];
-    Storage.set(KEYS.pendingSync, []);
-    state.lastSyncTime = Date.now();
-    Storage.set(KEYS.lastSyncTime, state.lastSyncTime);
-    state.syncStatus = "synced";
-    showToast("Data saved locally & queued for cloud");
-    try { render(); } catch (e) {}
-    return true;
   }
+
+  const cloudData = {
+    companies: serverCompanies && serverCompanies.length > 0 ? serverCompanies : currentCompanies,
+    deletedCompanyIds: deletedIds,
+    syncedAt: Date.now(),
+    processedEvents: pendingEvents.length,
+    remoteSynced: cloudSynced
+  };
+
+  Storage.set(KEYS.cloudBackup, cloudData);
+  state.pendingSyncQueue = [];
+  Storage.set(KEYS.pendingSync, []);
+  state.lastSyncTime = Date.now();
+  Storage.set(KEYS.lastSyncTime, state.lastSyncTime);
+  state.syncStatus = cloudSynced ? "synced" : "synced";
+
+  if (cloudSynced && !isImmediate) {
+    showToast("Cloud Sync Complete ☁️ All data updated");
+  }
+  try { render(); } catch (e) {}
+  return true;
 }
 
-// Global Network Listeners for Internet Reconnection
+// Pull latest data from Cloud Master Server (for multi-device sync)
+async function pullFromCloud(silent = false) {
+  if (typeof fetch !== "function" || (typeof navigator !== "undefined" && !navigator.onLine)) {
+    return false;
+  }
+
+  const targetUrls = Array.from(new Set([
+    (CLOUD_API_BASE ? CLOUD_API_BASE : "") + "/api/sync",
+    "/api/sync",
+    "https://corner-counter-2.onrender.com/api/sync"
+  ])).filter(u => !!u);
+
+  for (const url of targetUrls) {
+    try {
+      const res = await fetch(url, { method: "GET" });
+      if (res.ok) {
+        const data = await res.json();
+        if (data && (Array.isArray(data.companies) || Array.isArray(data.cloudCompanies))) {
+          const cloudList = data.companies || data.cloudCompanies || [];
+          const cloudDeleted = data.deletedCompanyIds || [];
+          const localDeleted = Storage.get(KEYS.deletedCompanyIds, []);
+          const mergedDeleted = Array.from(new Set([...localDeleted, ...cloudDeleted]));
+          Storage.set(KEYS.deletedCompanyIds, mergedDeleted);
+
+          const validCloud = cloudList.filter(c => c && c.id && !mergedDeleted.includes(c.id));
+
+          if (validCloud.length > 0) {
+            const localStr = JSON.stringify(state.companies || []);
+            const cloudStr = JSON.stringify(validCloud);
+
+            if (localStr !== cloudStr) {
+              state.companies = validCloud;
+              Storage.set(KEYS.companies, validCloud);
+              if (!state.activeCompany || !validCloud.find(c => c.id === state.activeCompany.id)) {
+                state.activeCompany = validCloud[0];
+                Storage.set(KEYS.activeCompanyId, state.activeCompany.id);
+              }
+              syncCurrentCompanyData();
+              state.syncStatus = "synced";
+              state.lastSyncTime = data.lastSyncedAt || Date.now();
+              Storage.set(KEYS.lastSyncTime, state.lastSyncTime);
+              if (!silent) showToast("Cloud data synced across devices ☁️");
+              try { render(); } catch (e) {}
+              return true;
+            }
+          }
+          state.syncStatus = "synced";
+          return true;
+        }
+      }
+    } catch (err) {
+      // Try next endpoint fallback
+    }
+  }
+  return false;
+}
+
+// Global Network Listeners for Internet Reconnection & Tab Focus
 if (typeof window !== "undefined" && typeof window.addEventListener === "function") {
   window.addEventListener("online", () => {
     state.online = true;
     showToast("Internet connected! Syncing with cloud...");
     syncWithCloud();
+    pullFromCloud(true);
   });
 
   window.addEventListener("offline", () => {
@@ -273,6 +331,24 @@ if (typeof window !== "undefined" && typeof window.addEventListener === "functio
     showToast("Internet disconnected. Operating in offline mode");
     render();
   });
+
+  // Pull latest cloud updates whenever the user switches back to this tab
+  window.addEventListener("focus", () => {
+    if (navigator.onLine) pullFromCloud(true);
+  });
+
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible" && navigator.onLine) {
+      pullFromCloud(true);
+    }
+  });
+
+  // Periodic multi-device background sync every 20 seconds
+  setInterval(() => {
+    if (typeof navigator !== "undefined" && navigator.onLine) {
+      pullFromCloud(true);
+    }
+  }, 20000);
 }
 
 // Global PWA Install Prompt Handler
@@ -564,8 +640,14 @@ function syncCurrentCompanyData() {
   state.sales = company ? company.sales : [];
 }
 
-function persistCompanies() {
+function persistCompanies(triggerCloud = true) {
   Storage.set(KEYS.companies, state.companies);
+  if (triggerCloud) {
+    if (syncDebounceTimer) clearTimeout(syncDebounceTimer);
+    syncDebounceTimer = setTimeout(() => {
+      syncWithCloud(true);
+    }, 250);
+  }
 }
 
 function persistSession() {
@@ -2916,3 +2998,10 @@ if (document.readyState === "loading") {
 
 // Initial render
 render();
+
+// Immediate Cloud Pull for Multi-Device synchronization
+if (typeof navigator !== "undefined" && navigator.onLine) {
+  setTimeout(() => {
+    pullFromCloud(true);
+  }, 100);
+}

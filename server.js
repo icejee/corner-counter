@@ -145,44 +145,56 @@ app.post("/api/sync", (req, res) => {
     });
   }
 
-  // 3. Filter out all deleted companies
-  if (Array.isArray(companies)) {
-    db.companies = companies.filter(c => !db.deletedCompanyIds.includes(c.id));
+  // 3. Smart Merge: Merge incoming companies without wiping other devices' data
+  if (Array.isArray(companies) && companies.length > 0) {
+    if (!db.companies || db.companies.length === 0) {
+      db.companies = companies.filter(c => !db.deletedCompanyIds.includes(c.id));
+    } else {
+      companies.forEach(incomingComp => {
+        if (!incomingComp || !incomingComp.id) return;
+        if (db.deletedCompanyIds.includes(incomingComp.id)) return;
+        const idx = db.companies.findIndex(c => c.id === incomingComp.id);
+        if (idx >= 0) {
+          // If incoming company has newer or populated products/sales, update
+          db.companies[idx] = incomingComp;
+        } else {
+          db.companies.push(incomingComp);
+        }
+      });
+      db.companies = db.companies.filter(c => !db.deletedCompanyIds.includes(c.id));
+    }
   } else {
-    db.companies = db.companies.filter(c => !db.deletedCompanyIds.includes(c.id));
+    db.companies = (db.companies || []).filter(c => !db.deletedCompanyIds.includes(c.id));
   }
 
   // 4. Save device snapshot
   db.devices = db.devices || {};
   db.devices[devId] = {
-    companies: db.companies,
-    pendingQueueCount: (pendingQueue || []).length,
     syncedAt: syncedAt || Date.now(),
-    receivedAt: Date.now()
+    receivedAt: Date.now(),
+    companiesCount: (companies || []).length
   };
 
   db.lastSyncedAt = Date.now();
   saveDB(db);
 
-  console.log(`[Cloud Sync] Terminal '${devId}' synchronized (${db.companies.length} active companies, ${db.deletedCompanyIds.length} deleted tracked)`);
+  console.log(`[Cloud Sync] Terminal '${devId}' synchronized (${db.companies.length} active master companies, ${db.deletedCompanyIds.length} deleted tracked)`);
 
   res.json({
     success: true,
     message: "Cloud Sync Successful",
     syncedAt: db.lastSyncedAt,
     cloudCompanies: db.companies,
+    companies: db.companies,
     deletedCompanyIds: db.deletedCompanyIds
   });
 });
 
 app.get("/api/sync/:deviceId?", (req, res) => {
-  const devId = req.params.deviceId;
-  if (devId && db.devices && db.devices[devId]) {
-    return res.json({ found: true, ...db.devices[devId] });
-  }
   res.json({
     found: true,
     companies: db.companies || [],
+    cloudCompanies: db.companies || [],
     deletedCompanyIds: db.deletedCompanyIds || [],
     lastSyncedAt: db.lastSyncedAt || Date.now()
   });
