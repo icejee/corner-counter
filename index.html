@@ -32,6 +32,11 @@
 <body data-theme="dark">
 <div id="app"></div>
 
+<script>
+  window.process = window.process || {};
+  window.process.env = window.process.env || {};
+  window.process.env.NEXT_PUBLIC_API_URL = window.process.env.NEXT_PUBLIC_API_URL || "https://corner-counter-2.onrender.com";
+</script>
 <script src="js/storage.js" defer></script>
 <script src="js/audio.js" defer></script>
 <script src="js/app.js?v=4" defer></script>

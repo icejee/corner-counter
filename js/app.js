@@ -146,11 +146,13 @@ const state = {
   },
 };
 
-const CLOUD_API_BASE = (function() {
-  if (typeof window !== "undefined" && window.location) {
-    if (window.location.hostname.includes("vercel.app") || window.location.hostname.includes("onrender.com")) {
-      return "";
-    }
+// API URL from Environment Configuration (process.env.NEXT_PUBLIC_API_URL)
+const NEXT_PUBLIC_API_URL = (function() {
+  if (typeof process !== "undefined" && process.env && process.env.NEXT_PUBLIC_API_URL) {
+    return process.env.NEXT_PUBLIC_API_URL;
+  }
+  if (typeof window !== "undefined" && window.process && window.process.env && window.process.env.NEXT_PUBLIC_API_URL) {
+    return window.process.env.NEXT_PUBLIC_API_URL;
   }
   return "https://corner-counter-2.onrender.com";
 })();
@@ -194,12 +196,10 @@ async function syncWithCloud(isImmediate = false) {
   };
 
   const targetUrls = Array.from(new Set([
-    (CLOUD_API_BASE ? CLOUD_API_BASE : "") + "/api/sync",
-    (CLOUD_API_BASE ? CLOUD_API_BASE : "") + "/api/sync/master_terminal",
+    `${(typeof process !== 'undefined' && process.env && process.env.NEXT_PUBLIC_API_URL) || NEXT_PUBLIC_API_URL}/api/sync`,
+    `${(typeof process !== 'undefined' && process.env && process.env.NEXT_PUBLIC_API_URL) || NEXT_PUBLIC_API_URL}/api/sync/master_terminal`,
     "/api/sync",
-    "/api/sync/master_terminal",
-    "https://corner-counter-2.onrender.com/api/sync",
-    "https://corner-counter-2.onrender.com/api/sync/master_terminal"
+    "https://corner-counter-2.onrender.com/api/sync"
   ])).filter(u => !!u);
 
   let cloudSynced = false;
@@ -265,11 +265,9 @@ async function pullFromCloud(silent = false) {
   }
 
   const targetUrls = Array.from(new Set([
-    (CLOUD_API_BASE ? CLOUD_API_BASE : "") + "/api/sync",
-    (CLOUD_API_BASE ? CLOUD_API_BASE : "") + "/api/sync/master_terminal",
-    "/api/sync",
+    `${(typeof process !== 'undefined' && process.env && process.env.NEXT_PUBLIC_API_URL) || NEXT_PUBLIC_API_URL}/api/sync/master_terminal`,
+    `${(typeof process !== 'undefined' && process.env && process.env.NEXT_PUBLIC_API_URL) || NEXT_PUBLIC_API_URL}/api/sync`,
     "/api/sync/master_terminal",
-    "https://corner-counter-2.onrender.com/api/sync",
     "https://corner-counter-2.onrender.com/api/sync/master_terminal"
   ])).filter(u => !!u);
 

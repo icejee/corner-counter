@@ -39,9 +39,31 @@ function saveDB(data) {
 let db = loadDB();
 
 // ——————————————————————————————
-// Middleware
+// Middleware & CORS Configuration
 // ——————————————————————————————
-app.use(cors({ origin: "*" }));
+const cors = require("cors");
+const allowedOrigins = [
+  "https://corner-counter-eosin.vercel.app",
+  "https://corner-counter-2.onrender.com",
+  "http://localhost:3000",
+  "http://localhost:8080",
+  "http://127.0.0.1:8080"
+];
+
+app.use(cors({
+  origin: function (origin, callback) {
+    // Allow requests with no origin (like mobile apps, curl, Postman) or matching Vercel/Render
+    if (!origin || allowedOrigins.includes(origin) || origin.endsWith(".vercel.app") || origin.endsWith(".onrender.com")) {
+      callback(null, true);
+    } else {
+      callback(null, true); // Permissive fallback
+    }
+  },
+  methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization"],
+  credentials: true
+}));
+
 app.use(express.json({ limit: "50mb" }));
 app.use(express.urlencoded({ extended: true, limit: "50mb" }));
 
