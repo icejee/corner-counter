@@ -1,5 +1,5 @@
 // Offline-First PWA Service Worker for Corner Counter POS
-const CACHE_NAME = "quick-pos-v5";
+const CACHE_NAME = "corner-counter-v10-network-first";
 
 const ASSETS = [
   "./",
@@ -9,7 +9,7 @@ const ASSETS = [
   "./js/storage.js",
   "./js/audio.js",
   "./js/confetti.js",
-  "./js/app.js",
+  "./js/app.js?v=10",
   "./icons/favicon-16.png",
   "./icons/favicon-32.png",
   "./icons/icon-192.png",
@@ -17,58 +17,57 @@ const ASSETS = [
   "./icons/logo.png"
 ];
 
-// Install Event: pre-cache all core application assets
+// Install Event: pre-cache all core application assets & skip waiting immediately
 self.addEventListener("install", (event) => {
+  self.skipWaiting();
   event.waitUntil(
-    caches
-      .open(CACHE_NAME)
-      .then((cache) => cache.addAll(ASSETS))
-      .then(() => self.skipWaiting())
+    caches.open(CACHE_NAME).then((cache) => cache.addAll(ASSETS)).catch(() => {})
   );
 });
 
-// Activate Event: purge stale caches and claim clients immediately
+// Activate Event: delete ALL old caches and claim all clients immediately
 self.addEventListener("activate", (event) => {
   event.waitUntil(
-    caches
-      .keys()
-      .then((keys) =>
-        Promise.all(
-          keys.filter((key) => key !== CACHE_NAME).map((key) => caches.delete(key))
-        )
-      )
-      .then(() => self.clients.claim())
+    caches.keys().then((keys) => {
+      return Promise.all(
+        keys.map((key) => {
+          if (key !== CACHE_NAME) {
+            console.log("[ServiceWorker] Purging old cache:", key);
+            return caches.delete(key);
+          }
+        })
+      );
+    }).then(() => self.clients.claim())
   );
 });
 
-// Fetch Event: Cache-First strategy with automatic background caching
+// Fetch Event: NEVER intercept API or cloud requests; use Network-First for JS/HTML
 self.addEventListener("fetch", (event) => {
-  if (event.request.method !== "GET") return;
+  const url = event.request.url;
 
+  // 1. NEVER cache or intercept API endpoints or Render cloud calls
+  if (url.includes("/api/") || url.includes("onrender.com") || event.request.method !== "GET") {
+    return; // Pass through directly to live network
+  }
+
+  // 2. Network-First Strategy for app code (HTML, JS, CSS) so updates are always instant
   event.respondWith(
-    caches.match(event.request, { ignoreSearch: true }).then((cachedResponse) => {
-      if (cachedResponse) {
-        return cachedResponse;
-      }
-
-      return fetch(event.request)
-        .then((networkResponse) => {
-          if (
-            networkResponse &&
-            networkResponse.status === 200 &&
-            (networkResponse.type === "basic" || networkResponse.type === "cors")
-          ) {
-            const clone = networkResponse.clone();
-            caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone));
-          }
-          return networkResponse;
-        })
-        .catch(() => {
-          // If offline and request is for a navigation or HTML page, serve index.html
+    fetch(event.request)
+      .then((networkResponse) => {
+        if (networkResponse && networkResponse.status === 200 && networkResponse.type === "basic") {
+          const clone = networkResponse.clone();
+          caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone));
+        }
+        return networkResponse;
+      })
+      .catch(() => {
+        // If offline, fallback to cached assets
+        return caches.match(event.request, { ignoreSearch: true }).then((cached) => {
+          if (cached) return cached;
           if (event.request.mode === "navigate" || event.request.headers.get("accept")?.includes("text/html")) {
             return caches.match("./index.html");
           }
         });
-    })
+      })
   );
 });
