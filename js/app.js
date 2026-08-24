@@ -306,12 +306,28 @@ async function pullFromCloud(silent = false) {
               state.activeCompany = merged[0];
               Storage.set(KEYS.activeCompanyId, state.activeCompany.id);
             }
-            syncCurrentCompanyData();
             state.syncStatus = "synced";
             state.lastSyncTime = data.lastSyncedAt || Date.now();
             Storage.set(KEYS.lastSyncTime, state.lastSyncTime);
             if (!silent) showToast("Cloud data synced across devices ☁️");
-            try { render(); } catch (e) {}
+
+            const isUserInteracting = !!(
+              state.productForm ||
+              state.staffForm ||
+              state.companyForm ||
+              state.subscriptionForm ||
+              state.checkoutOpen ||
+              state.customItemForm ||
+              state.itemNoteModal ||
+              state.settingsModal ||
+              state.thermalReceiptSale ||
+              state.installModalOpen ||
+              state.inviteAcceptForm ||
+              (document.activeElement && ['INPUT', 'SELECT', 'TEXTAREA'].includes(document.activeElement.tagName))
+            );
+            if (!silent || !isUserInteracting) {
+              try { render(); } catch (e) {}
+            }
             return true;
           } else if (state.companies && state.companies.length > 0) {
             // Cloud was empty (e.g. server restart), upload our local companies immediately
@@ -703,12 +719,22 @@ if (state.session && (state.session.role === "staff" || state.session.role === "
 let toastTimer = null;
 function showToast(msg) {
   state.toast = msg;
-  render();
+  let toastEl = document.getElementById("app-toast");
+  if (!toastEl) {
+    toastEl = document.createElement("div");
+    toastEl.id = "app-toast";
+    toastEl.className = "toast";
+    document.body.appendChild(toastEl);
+  }
+  toastEl.textContent = msg;
+  toastEl.style.display = "flex";
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => {
     state.toast = null;
-    render();
-  }, 2200);
+    if (toastEl) {
+      toastEl.style.display = "none";
+    }
+  }, 2400);
 }
 
 // ---------- Order Calculations ----------
@@ -1109,8 +1135,7 @@ function renderApp() {
       (state.companyForm ? renderCompanyForm() : "") +
       (state.staffForm ? renderStaffForm() : "") +
       (state.subscriptionForm ? renderSubscriptionForm() : "") +
-      (state.settingsModal ? renderSettingsModal() : "") +
-      (state.toast ? '<div class="toast">' + esc(state.toast) + "</div>" : "");
+      (state.settingsModal ? renderSettingsModal() : "");
     attachDynamicListeners();
     return;
   }
@@ -1134,8 +1159,7 @@ function renderApp() {
     (state.subscriptionForm ? renderSubscriptionForm() : "") +
     (state.settingsModal ? renderSettingsModal() : "") +
     (state.itemNoteModal ? renderItemNoteModal() : "") +
-    (state.installModalOpen ? renderInstallModal() : "") +
-    (state.toast ? '<div class="toast">' + esc(state.toast) + "</div>" : "");
+    (state.installModalOpen ? renderInstallModal() : "");
 
   attachDynamicListeners();
 }
@@ -1568,10 +1592,10 @@ function renderCheckout() {
   }
 
   return (
-    '<div class="overlay"><div class="overlay-scrim" data-action="close-checkout"></div>' +
+    '<div class="overlay"><div class="overlay-scrim"></div>' +
     '<div class="sheet">' +
     '<div class="sheet-header"><div class="sheet-title">Take Payment</div>' +
-    '<button class="sheet-close" data-action="close-checkout">' + ICONS.x + '</button></div>' +
+    '<button class="sheet-close" data-action="close-checkout" title="Cancel & Close">' + ICONS.x + '</button></div>' +
     '<div class="sheet-body">' +
     '<div class="due-block"><div class="due-label">Total Amount Due</div><div class="due-amount">' + money(total) + '</div></div>' +
     '<div class="payment-tabs">' +
@@ -1582,9 +1606,12 @@ function renderCheckout() {
     '</div>' +
     paymentBody +
     '</div>' +
+    '<div class="sheet-footer" style="display:flex;gap:8px;">' +
+    '<button class="mini-btn" style="flex:1;" data-action="close-checkout">Cancel</button>' +
     (method === "cash"
-      ? '<div class="sheet-footer"><button id="confirm-sale-btn" class="btn-teal" data-action="confirm-sale"' + (canConfirm ? "" : " disabled") + '>' + ICONS.check + ' Complete Sale</button></div>'
+      ? '<button id="confirm-sale-btn" class="btn-teal" style="flex:2;" data-action="confirm-sale"' + (canConfirm ? "" : " disabled") + '>' + ICONS.check + ' Complete Sale</button>'
       : '') +
+    '</div>' +
     '</div></div>'
   );
 }
@@ -1607,16 +1634,17 @@ function renderCartDrawer() {
       '</div>'
     )).join("");
 
-  const footer = tab.cart.length === 0 ? "" : (
-    '<div class="sheet-footer">' +
-    '<button class="btn-teal" data-action="open-checkout">Proceed to Checkout ' + money(cartTotal()) + '</button>' +
+  const footer = (
+    '<div class="sheet-footer" style="display:flex;gap:8px;">' +
+    '<button class="mini-btn" style="flex:1;" data-action="close-cart">Close</button>' +
+    (tab.cart.length > 0 ? '<button class="btn-teal" style="flex:2;" data-action="open-checkout">Proceed to Checkout ' + money(cartTotal()) + '</button>' : '') +
     '</div>'
   );
 
   return (
-    '<div class="overlay"><div class="overlay-scrim" data-action="close-cart"></div>' +
+    '<div class="overlay"><div class="overlay-scrim"></div>' +
     '<div class="sheet"><div class="sheet-header"><div class="sheet-title">Current Order (' + tab.name + ')</div>' +
-    '<button class="sheet-close" data-action="close-cart">' + ICONS.x + '</button></div>' +
+    '<button class="sheet-close" data-action="close-cart" title="Close">' + ICONS.x + '</button></div>' +
     '<div class="sheet-body">' + rows + '</div>' +
     footer +
     '</div></div>'
@@ -1631,10 +1659,10 @@ function renderThermalReceiptModal() {
   const timeStr = new Date(sale.timestamp).toLocaleString();
 
   return (
-    '<div class="overlay"><div class="overlay-scrim" data-action="dismiss-receipt"></div>' +
+    '<div class="overlay"><div class="overlay-scrim"></div>' +
     '<div class="sheet" style="max-width:380px;">' +
     '<div class="sheet-header"><div class="sheet-title">Sale Complete 🎉</div>' +
-    '<button class="sheet-close" data-action="dismiss-receipt">' + ICONS.x + '</button></div>' +
+    '<button class="sheet-close" data-action="dismiss-receipt" title="Acknowledge & Close">' + ICONS.x + '</button></div>' +
     '<div class="sheet-body">' +
     '<div class="thermal-receipt-container" id="printable-receipt">' +
     '<div class="receipt-store-name">' + esc(sale.companyName || state.settings.storeName) + '</div>' +
@@ -1659,7 +1687,7 @@ function renderThermalReceiptModal() {
     '</div>' +
     '<div class="sheet-footer" style="display:flex;gap:8px;">' +
     '<button class="pill-btn" style="flex:1;" data-action="print-receipt">' + ICONS.print + ' Print Receipt</button>' +
-    '<button class="mini-btn" style="flex:1;" data-action="dismiss-receipt">Done</button>' +
+    '<button class="btn-teal" style="flex:1.2;" data-action="dismiss-receipt">✓ Acknowledge (Done)</button>' +
     '</div>' +
     '</div></div>'
   );
@@ -1920,10 +1948,10 @@ function renderSubscriptionForm() {
   const expiryDateFormatted = new Date(subInfo.expiresAt).toLocaleDateString(undefined, { weekday: "short", year: "numeric", month: "short", day: "numeric" });
 
   return (
-    '<div class="overlay"><div class="overlay-scrim" data-action="close-subscription-form"></div>' +
+    '<div class="overlay"><div class="overlay-scrim"></div>' +
     '<div class="sheet" style="max-width:480px;">' +
     '<div class="sheet-header"><div class="sheet-title">Subscription — ' + esc(comp.name) + '</div>' +
-    '<button class="sheet-close" data-action="close-subscription-form">' + ICONS.x + '</button></div>' +
+    '<button class="sheet-close" data-action="close-subscription-form" title="Close">' + ICONS.x + '</button></div>' +
     '<div class="sheet-body">' +
     '<div style="background:var(--surface-raised);padding:12px;border-radius:12px;margin-bottom:14px;border:1px solid var(--border);">' +
     '<div style="font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;">Current Expiration Date</div>' +
@@ -1966,10 +1994,10 @@ function renderProductForm() {
   if (!f) return "";
   const isEdit = !!f.id;
   return (
-    '<div class="overlay"><div class="overlay-scrim" data-action="close-product-form"></div>' +
+    '<div class="overlay"><div class="overlay-scrim"></div>' +
     '<div class="sheet">' +
     '<div class="sheet-header"><div class="sheet-title">' + (isEdit ? "Edit Product" : "New Product") + '</div>' +
-    '<button class="sheet-close" data-action="close-product-form">' + ICONS.x + '</button></div>' +
+    '<button class="sheet-close" data-action="close-product-form" title="Close">' + ICONS.x + '</button></div>' +
     '<div class="sheet-body">' +
     '<label class="form-field"><span class="form-label">Product Name</span>' +
     '<input id="f-name" class="form-input" type="text" placeholder="e.g. Cappuccino" value="' + esc(f.name) + '" /></label>' +
@@ -1987,7 +2015,10 @@ function renderProductForm() {
     '</div>' +
     '</div>' +
     '<div class="sheet-footer">' +
-    '<button class="btn-teal" data-action="save-product" style="margin-bottom:8px;">Save Product</button>' +
+    '<div style="display:flex;gap:8px;margin-bottom:8px;">' +
+    '<button class="mini-btn" style="flex:1;" data-action="close-product-form">Cancel</button>' +
+    '<button class="btn-teal" style="flex:2;" data-action="save-product">Save Product</button>' +
+    '</div>' +
     (isEdit ? '<button class="btn-danger-text" data-action="delete-product">Delete Product</button>' : "") +
     '</div>' +
     '</div></div>'
@@ -1997,18 +2028,19 @@ function renderProductForm() {
 function renderCustomItemModal() {
   const f = state.customItemForm || { name: "Custom Item", price: "" };
   return (
-    '<div class="overlay"><div class="overlay-scrim" data-action="close-custom-item"></div>' +
+    '<div class="overlay"><div class="overlay-scrim"></div>' +
     '<div class="sheet">' +
     '<div class="sheet-header"><div class="sheet-title">Add Custom Sale Item</div>' +
-    '<button class="sheet-close" data-action="close-custom-item">' + ICONS.x + '</button></div>' +
+    '<button class="sheet-close" data-action="close-custom-item" title="Close">' + ICONS.x + '</button></div>' +
     '<div class="sheet-body">' +
     '<label class="form-field"><span class="form-label">Item Description</span>' +
     '<input id="custom-name" class="form-input" type="text" placeholder="e.g. Custom Pastry" value="' + esc(f.name) + '" /></label>' +
     '<label class="form-field"><span class="form-label">Price</span>' +
     '<input id="custom-price" class="form-input" type="number" step="0.01" placeholder="0.00" autofocus /></label>' +
     '</div>' +
-    '<div class="sheet-footer">' +
-    '<button class="btn-teal" data-action="save-custom-item">Add to Current Order</button>' +
+    '<div class="sheet-footer" style="display:flex;gap:8px;">' +
+    '<button class="mini-btn" style="flex:1;" data-action="close-custom-item">Cancel</button>' +
+    '<button class="btn-teal" style="flex:2;" data-action="save-custom-item">Add to Current Order</button>' +
     '</div>' +
     '</div></div>'
   );
@@ -2019,16 +2051,17 @@ function renderItemNoteModal() {
   if (!item) return "";
 
   return (
-    '<div class="overlay"><div class="overlay-scrim" data-action="close-item-note"></div>' +
+    '<div class="overlay"><div class="overlay-scrim"></div>' +
     '<div class="sheet" style="max-width:380px;">' +
     '<div class="sheet-header"><div class="sheet-title">Item Note: ' + esc(item.name) + '</div>' +
-    '<button class="sheet-close" data-action="close-item-note">' + ICONS.x + '</button></div>' +
+    '<button class="sheet-close" data-action="close-item-note" title="Close">' + ICONS.x + '</button></div>' +
     '<div class="sheet-body">' +
     '<label class="form-field"><span class="form-label">Special instructions (e.g. Oat milk, Extra hot)</span>' +
     '<input id="item-note-input" class="form-input" type="text" placeholder="Enter note..." value="' + esc(item.note || "") + '" /></label>' +
     '</div>' +
-    '<div class="sheet-footer">' +
-    '<button class="btn-teal" data-action="save-item-note">Save Note</button>' +
+    '<div class="sheet-footer" style="display:flex;gap:8px;">' +
+    '<button class="mini-btn" style="flex:1;" data-action="close-item-note">Cancel</button>' +
+    '<button class="btn-teal" style="flex:2;" data-action="save-item-note">Save Note</button>' +
     '</div>' +
     '</div></div>'
   );
@@ -2045,10 +2078,10 @@ function renderSettingsModal() {
   ) : "";
 
   return (
-    '<div class="overlay"><div class="overlay-scrim" data-action="close-settings"></div>' +
+    '<div class="overlay"><div class="overlay-scrim"></div>' +
     '<div class="sheet">' +
     '<div class="sheet-header"><div class="sheet-title">POS Store Settings</div>' +
-    '<button class="sheet-close" data-action="close-settings">' + ICONS.x + '</button></div>' +
+    '<button class="sheet-close" data-action="close-settings" title="Close">' + ICONS.x + '</button></div>' +
     '<div class="sheet-body">' +
     '<label class="form-field"><span class="form-label">Store Brand Name</span>' +
     '<input id="setting-store-name" class="form-input" type="text" value="' + esc(s.storeName) + '" /></label>' +
@@ -2082,8 +2115,9 @@ function renderSettingsModal() {
     '</div>' +
     '</div>' +
     '</div>' +
-    '<div class="sheet-footer">' +
-    '<button class="btn-teal" data-action="save-settings">Save Settings</button>' +
+    '<div class="sheet-footer" style="display:flex;gap:8px;">' +
+    '<button class="mini-btn" style="flex:1;" data-action="close-settings">Close</button>' +
+    '<button class="btn-teal" style="flex:2;" data-action="save-settings">Save Settings</button>' +
     '</div>' +
     '</div></div>'
   );
@@ -2121,10 +2155,10 @@ function renderInstallModal() {
   }
 
   return (
-    '<div class="overlay"><div class="overlay-scrim" data-action="close-install-modal"></div>' +
+    '<div class="overlay"><div class="overlay-scrim"></div>' +
     '<div class="sheet" style="max-width:400px;">' +
     '<div class="sheet-header"><div class="sheet-title">Download Mobile App</div>' +
-    '<button class="sheet-close" data-action="close-install-modal">' + ICONS.x + '</button></div>' +
+    '<button class="sheet-close" data-action="close-install-modal" title="Close">' + ICONS.x + '</button></div>' +
     '<div class="sheet-body">' +
     '<div style="display:flex;align-items:center;justify-content:center;gap:12px;margin-bottom:16px;">' +
     '<div class="header-logo-badge" style="width:48px;height:48px;"><img src="icons/icon-192.png" alt="App Logo" /></div>' +
@@ -2145,10 +2179,10 @@ function renderInstallModal() {
 function renderCompanyForm() {
   const f = state.companyForm || { name: "", staffName: "", staffUsername: "", staffPassword: "", staffRole: "company_admin" };
   return (
-    '<div class="overlay"><div class="overlay-scrim" data-action="close-company-form"></div>' +
+    '<div class="overlay"><div class="overlay-scrim"></div>' +
     '<div class="sheet">' +
     '<div class="sheet-header"><div class="sheet-title">Add Company</div>' +
-    '<button class="sheet-close" data-action="close-company-form">' + ICONS.x + '</button></div>' +
+    '<button class="sheet-close" data-action="close-company-form" title="Close">' + ICONS.x + '</button></div>' +
     '<div class="sheet-body">' +
     '<label class="form-field"><span class="form-label">Company Name</span>' +
     '<input id="company-name" class="form-input" type="text" placeholder="Acme Cafe" value="' + esc(f.name) + '" /></label>' +
@@ -2164,7 +2198,10 @@ function renderCompanyForm() {
     '<option value="staff" ' + (f.staffRole === "staff" ? "selected" : "") + '>Staff</option>' +
     '</select></label>' +
     '</div>' +
-    '<div class="sheet-footer"><button class="btn-teal" data-action="save-company-form">Create Company</button></div>' +
+    '<div class="sheet-footer" style="display:flex;gap:8px;">' +
+    '<button class="mini-btn" style="flex:1;" data-action="close-company-form">Cancel</button>' +
+    '<button class="btn-teal" style="flex:2;" data-action="save-company-form">Create Company</button>' +
+    '</div>' +
     '</div></div>'
   );
 }
@@ -2173,10 +2210,10 @@ function renderStaffForm() {
   const f = state.staffForm || { companyId: "", name: "", username: "", password: "", role: "staff" };
   const isEdit = !!f.id;
   return (
-    '<div class="overlay"><div class="overlay-scrim" data-action="close-staff-form"></div>' +
+    '<div class="overlay"><div class="overlay-scrim"></div>' +
     '<div class="sheet">' +
     '<div class="sheet-header"><div class="sheet-title">' + (isEdit ? 'Edit Staff Member' : 'Add Staff Member') + '</div>' +
-    '<button class="sheet-close" data-action="close-staff-form">' + ICONS.x + '</button></div>' +
+    '<button class="sheet-close" data-action="close-staff-form" title="Close">' + ICONS.x + '</button></div>' +
     '<div class="sheet-body">' +
     '<label class="form-field"><span class="form-label">Staff Name</span>' +
     '<input id="staff-name" class="form-input" type="text" placeholder="Cashier Name" value="' + esc(f.name) + '" /></label>' +
@@ -2190,7 +2227,10 @@ function renderStaffForm() {
     '<option value="staff" ' + (f.role === "staff" ? "selected" : "") + '>Staff</option>' +
     '</select></label>' +
     '</div>' +
-    '<div class="sheet-footer"><button class="btn-teal" data-action="save-staff-form">Save Staff</button></div>' +
+    '<div class="sheet-footer" style="display:flex;gap:8px;">' +
+    '<button class="mini-btn" style="flex:1;" data-action="close-staff-form">Cancel</button>' +
+    '<button class="btn-teal" style="flex:2;" data-action="save-staff-form">Save Staff</button>' +
+    '</div>' +
     '</div></div>'
   );
 }
@@ -2227,10 +2267,10 @@ function renderLoginScreen() {
 function renderInviteAcceptForm() {
   const f = state.inviteAcceptForm || { code: "", name: "", username: "", password: "" };
   return (
-    '<div class="overlay"><div class="overlay-scrim" data-action="close-invite-accept"></div>' +
+    '<div class="overlay"><div class="overlay-scrim"></div>' +
     '<div class="sheet">' +
     '<div class="sheet-header"><div class="sheet-title">Accept Staff Invite</div>' +
-    '<button class="sheet-close" data-action="close-invite-accept">' + ICONS.x + '</button></div>' +
+    '<button class="sheet-close" data-action="close-invite-accept" title="Close">' + ICONS.x + '</button></div>' +
     '<div class="sheet-body">' +
     '<label class="form-field"><span class="form-label">Invite Code</span>' +
     '<input id="invite-code-input" class="form-input" type="text" placeholder="Paste invite code" value="' + esc(f.code) + '" /></label>' +
@@ -2241,7 +2281,10 @@ function renderInviteAcceptForm() {
     '<label class="form-field"><span class="form-label">Choose Password</span>' +
     '<input id="invite-password-input" class="form-input" type="text" placeholder="password" value="' + esc(f.password) + '" /></label>' +
     '</div>' +
-    '<div class="sheet-footer"><button class="btn-teal" data-action="save-invite-accept">Join Company</button></div>' +
+    '<div class="sheet-footer" style="display:flex;gap:8px;">' +
+    '<button class="mini-btn" style="flex:1;" data-action="close-invite-accept">Cancel</button>' +
+    '<button class="btn-teal" style="flex:2;" data-action="save-invite-accept">Join Company</button>' +
+    '</div>' +
     '</div></div>'
   );
 }
@@ -2986,25 +3029,7 @@ function attachAppEventHandlers() {
     }
   });
 
-  document.addEventListener("keydown", (e) => {
-    if (e.key === "Escape") {
-      const anyOpen = state.staffForm || state.companyForm || state.productForm || state.customItemForm || state.checkoutOpen || state.cartOpen || state.inviteAcceptForm || state.settingsModal || state.thermalReceiptSale || state.itemNoteModal || state.subscriptionForm;
-      if (anyOpen) {
-        state.staffForm = null;
-        state.companyForm = null;
-        state.productForm = null;
-        state.customItemForm = null;
-        state.checkoutOpen = false;
-        state.cartOpen = false;
-        state.inviteAcceptForm = null;
-        state.settingsModal = false;
-        state.thermalReceiptSale = null;
-        state.itemNoteModal = null;
-        state.subscriptionForm = null;
-        render();
-      }
-    }
-  });
+
 }
 
 // Attach event handlers
