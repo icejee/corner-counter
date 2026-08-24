@@ -284,6 +284,105 @@ input, select {
   border-color: var(--rose-glow);
 }
 
+/* Mobile Responsive Optimization for Header & Action Buttons */
+@media (max-width: 600px) {
+  .header {
+    padding: calc(env(safe-area-inset-top, 0px) + 8px) 10px 8px;
+    gap: 6px;
+  }
+
+  .header-brand {
+    gap: 6px;
+    min-width: 0;
+    flex-shrink: 0;
+  }
+
+  .header-title-wrap {
+    max-width: 120px;
+  }
+
+  .header-title {
+    font-size: 13px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .header-subinfo {
+    font-size: 10px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .header-actions {
+    gap: 4px;
+    flex: 1;
+    justify-content: flex-end;
+    overflow-x: auto;
+    scrollbar-width: none;
+    padding-bottom: 2px;
+  }
+
+  .header-actions::-webkit-scrollbar {
+    display: none;
+  }
+
+  .install-app-btn {
+    padding: 5px 9px;
+    font-size: 11px;
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+
+  .icon-btn {
+    width: 32px;
+    height: 32px;
+    flex-shrink: 0;
+  }
+
+  .status-pill {
+    padding: 4px 7px;
+    font-size: 10px;
+    flex-shrink: 0;
+  }
+
+  .status-pill span {
+    display: none;
+  }
+
+  .logout-btn {
+    padding: 5px 9px;
+    font-size: 11px;
+    flex-shrink: 0;
+  }
+}
+
+@media (max-width: 500px) {
+  .toolbar-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+
+  .search-box {
+    flex: 1 1 100%;
+    padding: 8px 12px;
+  }
+
+  .search-box input {
+    font-size: 13px;
+  }
+
+  .toolbar-row .pill-btn {
+    flex: 1;
+    justify-content: center;
+    padding: 8px 12px;
+    font-size: 12px;
+    white-space: nowrap;
+  }
+}
+
 /* Main Workspace Layout (Adaptive Dual-Pane for Desktop/Tablet) */
 .body-scroll {
   flex: 1;
@@ -2366,4 +2465,71 @@ input, select {
   color: var(--text-primary);
   border-color: var(--cyan);
 }
+
+/* Install App Button & Modal Styles */
+.install-app-btn {
+  background: linear-gradient(135deg, var(--indigo), var(--cyan));
+  color: #ffffff !important;
+  border-radius: var(--radius-full);
+  padding: 6px 14px;
+  font-size: 12px;
+  font-weight: 700;
+  box-shadow: 0 4px 14px rgba(99, 102, 241, 0.35);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  animation: pulseGlow 3s infinite;
+}
+
+@keyframes pulseGlow {
+  0%, 100% { box-shadow: 0 4px 14px rgba(99, 102, 241, 0.35); }
+  50% { box-shadow: 0 4px 20px rgba(6, 182, 212, 0.6); }
+}
+
+.install-app-btn:hover {
+  background: linear-gradient(135deg, var(--cyan), var(--emerald));
+  transform: translateY(-1px);
+}
+
+.install-steps-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 14px 0;
+}
+
+.install-step-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  background: var(--surface-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 12px 14px;
+}
+
+.install-step-number {
+  width: 26px;
+  height: 26px;
+  border-radius: var(--radius-full);
+  background: linear-gradient(135deg, var(--cyan), var(--emerald));
+  color: #fff;
+  font-size: 12px;
+  font-weight: 800;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.install-step-text {
+  font-size: 13px;
+  color: var(--text-primary);
+  line-height: 1.4;
+}
+
+.install-step-text strong {
+  color: var(--cyan);
+}
+
 

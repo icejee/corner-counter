@@ -110,17 +110,28 @@ function assert(desc, condition) {
 assert("Default companies populated with subscription", state.companies.length > 0 && state.companies[0].subscription);
 assert("Theme initialized to dark", state.theme === "dark");
 
-// Test 2: Authentication
+// Test 2: Fresh Install Empty Catalog
+assert("Fresh company starts with 0 hardcoded products", state.companies[0].products.length === 0);
+
+// Populate products on test company dynamically for testing sales flow
+const testCompany = state.companies[0];
+testCompany.products = [
+  { id: "p1", name: "Espresso", price: 2.5, icon: "☕", category: "Drinks", stock: 50 },
+  { id: "p2", name: "Latte", price: 3.75, icon: "🥛", category: "Drinks", stock: 35 },
+  { id: "p3", name: "Iced Tea", price: 3.0, icon: "🧊", category: "Drinks", stock: 40 },
+  { id: "p4", name: "Croissant", price: 3.25, icon: "🥐", category: "Food", stock: 12 }
+];
+
+// Test 3: Authentication
 assert("Login invalid credentials fails", loginUser("wrong", "pass") === false);
 assert("Login staff user succeeds", loginUser("staff", "staff123") === true);
 assert("Session set correctly for staff", state.session.username === "staff" && state.session.role === "staff");
-assert("Products loaded for company", state.products.length >= 8);
 
-// Test 3: Superadmin Login
+// Test 4: Superadmin Login
 loginUser("JOESH", "@Icejee01");
 assert("Superadmin login succeeds", state.session.role === "superadmin" && state.session.username === "JOESH");
 
-// Test 4: Superadmin Subscription Controls
+// Test 5: Superadmin Subscription Controls
 const comp = state.companies[0];
 assert("Company has active subscription", getSubscriptionInfo(comp).status === "active");
 
@@ -161,19 +172,19 @@ state.subscriptionForm = null;
 comp.subscription.expiresAt = Date.now() + 1000 * 60 * 60 * 24 * 30;
 loginUser("admin", "admin123");
 
-// Test 5: Cart and Category filtering
+// Test 6: Cart and Category filtering
 state.activeCategory = "Drinks";
 let drinks = filteredProducts();
 assert("Category filter works for Drinks", drinks.every(p => p.category === "Drinks") && drinks.length > 0);
 state.activeCategory = "all";
 
-// Test 6: Favorites
+// Test 7: Favorites
 state.favorites = [];
 toggleFavorite("p1");
 assert("Espresso added to favorites", state.favorites.includes("p1"));
 state.favorites = ["p1", "p2", "p4"];
 
-// Test 7: Adding items & cart calculation
+// Test 8: Adding items & cart calculation
 addToCart("p1"); // Espresso $2.50
 addToCart("p1"); // Espresso $2.50
 addToCart("p4"); // Croissant $3.25
@@ -181,7 +192,7 @@ assert("Cart has 2 distinct product entries", state.cart.length === 2);
 assert("Espresso quantity is 2", state.cart.find(i => i.productId === "p1").qty === 2);
 assert("Subtotal is $8.25", cartSubtotal() === 8.25);
 
-// Test 8: Discounts & Tax & Tips
+// Test 9: Discounts & Tax & Tips
 const tab = getActiveTab();
 tab.discountPct = 10;
 tab.tipAmt = 1.00;
@@ -194,7 +205,7 @@ assert("Discount is ~0.83", Math.abs(discount - 0.825) < 0.01);
 assert("Tax is ~0.37", Math.abs(tax - 0.37125) < 0.01);
 assert("Total calculates properly with subtotal - discount + tax + tip", totalAmt > 7.5 && totalAmt < 9.0);
 
-// Test 9: Completing sale (Cash)
+// Test 10: Completing sale (Cash)
 const initialStock = state.products.find(p => p.id === "p1").stock;
 state.paymentMethod = "cash";
 state.cashValue = "20.00";
@@ -203,10 +214,6 @@ assert("Sale completed and saved to history", state.sales.length === 1);
 assert("Order #1 cart cleared after sale", state.cart.length === 0);
 assert("Inventory stock decremented by 2", state.products.find(p => p.id === "p1").stock === initialStock - 2);
 assert("Receipt generated", state.thermalReceiptSale !== null);
-
-// Test 10: Demo Data Loader
-loadDemoSales();
-assert("Demo sales added to store", state.sales.length >= 4);
 
 // Test 11: Export & Backup
 const exportedBackup = Storage.exportAll();

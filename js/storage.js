@@ -57,3 +57,96 @@ const Storage = {
     }
   }
 };
+
+// --- IndexedDB backup helpers (run in background) ---
+;(function(){
+  function idbOpen() {
+    return new Promise((resolve, reject) => {
+      if (!window.indexedDB) return reject(new Error('IndexedDB not supported'));
+      const req = indexedDB.open('cc_backups_db', 1);
+      req.onupgradeneeded = () => {
+        const db = req.result;
+        if (!db.objectStoreNames.contains('backups')) db.createObjectStore('backups');
+      };
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error);
+    });
+  }
+
+  async function idbPut(key, value) {
+    const db = await idbOpen();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction('backups', 'readwrite');
+      const store = tx.objectStore('backups');
+      const r = store.put(value, key);
+      r.onsuccess = () => { resolve(true); db.close(); };
+      r.onerror = () => { reject(r.error); db.close(); };
+    });
+  }
+
+  async function idbGet(key) {
+    const db = await idbOpen();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction('backups', 'readonly');
+      const store = tx.objectStore('backups');
+      const r = store.get(key);
+      r.onsuccess = () => { resolve(r.result); db.close(); };
+      r.onerror = () => { reject(r.error); db.close(); };
+    });
+  }
+
+  Storage.ensurePersistentStorage = async function() {
+    try {
+      if (navigator.storage && navigator.storage.persist) {
+        const persisted = await navigator.storage.persist();
+        console.log('Storage.persisted?', persisted);
+        return persisted;
+      }
+    } catch (err) {
+      console.warn('persist() failed', err);
+    }
+    return false;
+  };
+
+  Storage.backupToIndexedDB = async function() {
+    try {
+      const payload = this.exportAll();
+      if (!payload) return false;
+      const data = { exportedAt: Date.now(), payload };
+      await idbPut('backup_v1', data);
+      console.log('Storage: backup written to IndexedDB');
+      return true;
+    } catch (err) {
+      console.warn('Storage.backupToIndexedDB failed', err);
+      return false;
+    }
+  };
+
+  Storage.restoreFromIndexedDB = async function() {
+    try {
+      const data = await idbGet('backup_v1');
+      if (!data || !data.payload) return false;
+      // only restore if companies key missing
+      if (!window.localStorage.getItem('cc_companies_v1')) {
+        this.importAll(data.payload);
+        console.log('Storage: restored data from IndexedDB backup');
+        return true;
+      }
+      return false;
+    } catch (err) {
+      console.warn('Storage.restoreFromIndexedDB failed', err);
+      return false;
+    }
+  };
+
+  // Run persistence request and background backup; non-blocking.
+  (async () => {
+    try {
+      await Storage.ensurePersistentStorage();
+    } catch (e) { /* ignore */ }
+    try {
+      // run backup after small delay to avoid blocking startup
+      setTimeout(() => { Storage.backupToIndexedDB(); }, 1000);
+    } catch (e) { /* ignore */ }
+  })();
+})();

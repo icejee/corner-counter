@@ -39,18 +39,10 @@ const ICONS = {
   coffee: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 8h1a4 4 0 1 1 0 8h-1"/><path d="M3 8h14v9a4 4 0 0 1-4 4H7a4 4 0 0 1-4-4Z"/><line x1="6" x2="6" y1="2" y2="4"/><line x1="10" x2="10" y1="2" y2="4"/><line x1="14" x2="14" y1="2" y2="4"/></svg>',
   note: '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>',
   shield: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>',
+  mobileApp: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="14" height="20" x="5" y="2" rx="2" ry="2"/><path d="M12 18h.01"/><path d="m9 11 3 3 3-3"/><path d="M12 6v8"/></svg>',
 };
 
-const SEED_PRODUCTS = [
-  { id: "p1", name: "Espresso", price: 2.5, icon: "☕", category: "Drinks", stock: 50 },
-  { id: "p2", name: "Latte", price: 3.75, icon: "🥛", category: "Drinks", stock: 35 },
-  { id: "p3", name: "Iced Tea", price: 3.0, icon: "🧊", category: "Drinks", stock: 40 },
-  { id: "p4", name: "Croissant", price: 3.25, icon: "🥐", category: "Food", stock: 12 },
-  { id: "p5", name: "Bagel", price: 2.75, icon: "🥯", category: "Food", stock: 18 },
-  { id: "p6", name: "Muffin", price: 3.5, icon: "🧁", category: "Food", stock: 4 }, // Low stock demo
-  { id: "p7", name: "Cookie", price: 2.0, icon: "🍪", category: "Food", stock: 25 },
-  { id: "p8", name: "Sparkling Water", price: 1.75, icon: "💧", category: "Drinks", stock: 30 },
-];
+const SEED_PRODUCTS = [];
 
 const KEYS = {
   companies: "cc_companies_v1",
@@ -73,7 +65,7 @@ const DEFAULT_COMPANIES = [
   {
     id: "company_1",
     name: "Corner Counter HQ",
-    products: SEED_PRODUCTS,
+    products: [],
     sales: [],
     staff: [
       { id: "admin_1", name: "Company Admin", username: "admin", password: "admin123", role: "company_admin" },
@@ -96,7 +88,7 @@ const state = {
   companies: Storage.get(KEYS.companies, DEFAULT_COMPANIES),
   session: Storage.get(KEYS.session, null),
   settings: Storage.get(KEYS.settings, DEFAULT_SETTINGS),
-  favorites: Storage.get(KEYS.favorites, ["p1", "p2", "p4"]),
+  favorites: Storage.get(KEYS.favorites, []),
   theme: Storage.get(KEYS.theme, "dark"),
 
   // Products & Sales for current session
@@ -133,6 +125,7 @@ const state = {
   subscriptionForm: null,
   settingsModal: false,
   itemNoteModal: null,
+  installModalOpen: false,
   analyticsTimeframe: "today", // 'today' | 'yesterday' | 'week' | 'month' | 'all'
 
   loginForm: {
@@ -141,6 +134,24 @@ const state = {
     error: "",
   },
 };
+
+// Global PWA Install Prompt Handler
+let deferredPwaPrompt = null;
+if (typeof window !== "undefined" && typeof window.addEventListener === "function") {
+  window.addEventListener("beforeinstallprompt", (e) => {
+    e.preventDefault();
+    deferredPwaPrompt = e;
+    state.pwaInstallable = true;
+    try { render(); } catch (err) {}
+  });
+
+  window.addEventListener("appinstalled", () => {
+    deferredPwaPrompt = null;
+    state.pwaInstallable = false;
+    showToast("App installed on device! 🎉");
+    try { render(); } catch (err) {}
+  });
+}
 
 // Initialize theme & sound
 if (typeof PosAudio !== "undefined") {
@@ -796,6 +807,7 @@ function renderApp() {
     (state.subscriptionForm ? renderSubscriptionForm() : "") +
     (state.settingsModal ? renderSettingsModal() : "") +
     (state.itemNoteModal ? renderItemNoteModal() : "") +
+    (state.installModalOpen ? renderInstallModal() : "") +
     (state.toast ? '<div class="toast">' + esc(state.toast) + "</div>" : "");
 
   attachDynamicListeners();
@@ -842,6 +854,7 @@ function renderHeader() {
     '</div>' +
     '</div>' +
     '<div class="header-actions">' +
+    '<button class="install-app-btn" data-action="prompt-install-app" title="Download Mobile App">' + ICONS.mobileApp + ' <span>Install App</span></button>' +
     '<button class="icon-btn" data-action="toggle-theme" title="Toggle Theme">' + themeIcon + '</button>' +
     '<button class="icon-btn" data-action="toggle-sound" title="Toggle Sound">' + soundIcon + '</button>' +
     '<button class="icon-btn" data-action="open-settings" title="Settings">' + ICONS.settings + '</button>' +
@@ -903,13 +916,15 @@ function renderSellScreen() {
 }
 
 function renderToolbar() {
+  const isAdmin = !state.session || state.session.role === "company_admin" || state.session.role === "superadmin";
   return (
     '<div class="toolbar-row">' +
     '<div class="search-box">' +
     '<span class="search-icon">' + ICONS.search + '</span>' +
     '<input id="search-input" type="text" placeholder="Search catalog by name or category..." value="' + esc(state.search) + '" />' +
     '</div>' +
-    '<button class="pill-btn" data-action="open-custom-item">' + ICONS.plus + ' Custom Item</button>' +
+    (isAdmin ? '<button class="pill-btn" data-action="open-add-product" title="Add Product to Catalog">' + ICONS.plus + ' <span>Add Item</span></button>' : '') +
+    '<button class="pill-btn" style="background:var(--surface-raised);border:1px solid var(--border);color:var(--text-primary);" data-action="open-custom-item">' + ICONS.plus + ' <span>Custom</span></button>' +
     '</div>'
   );
 }
@@ -959,7 +974,21 @@ function renderProductGrid() {
   const list = filteredProducts();
 
   if (list.length === 0) {
-    return renderEmpty("No products found", "Try clearing your search or add new products from the Products tab.");
+    if (state.products.length === 0) {
+      const isAdmin = !state.session || state.session.role === "company_admin" || state.session.role === "superadmin";
+      return (
+        '<div class="empty-state" style="padding:40px 20px;">' +
+        '<div class="empty-icon">' + ICONS.package + '</div>' +
+        '<div class="empty-title">Store Catalog is Empty</div>' +
+        '<div class="empty-body">You have no products listed in your inventory yet. Add what you sell to start taking orders!</div>' +
+        '<div style="display:flex;gap:8px;margin-top:16px;flex-wrap:wrap;justify-content:center;">' +
+        (isAdmin ? '<button class="pill-btn" data-action="open-add-product">' + ICONS.plus + ' Add First Product</button>' : '') +
+        '<button class="pill-btn" style="background:var(--surface-raised);border:1px solid var(--border);color:var(--text-primary);" data-action="open-custom-item">' + ICONS.plus + ' Add Custom Item</button>' +
+        '</div>' +
+        '</div>'
+      );
+    }
+    return renderEmpty("No products found", "Try clearing your search query.");
   }
 
   return (
@@ -1694,6 +1723,11 @@ function renderSettingsModal() {
     '<input id="setting-receipt-footer" class="form-input" type="text" value="' + esc(s.receiptFooter) + '" /></label>' +
     subSection +
     '<div style="margin-top:14px;padding:12px;background:var(--surface-raised);border-radius:12px;border:1px solid var(--border);">' +
+    '<div style="font-size:12px;font-weight:700;margin-bottom:6px;display:flex;align-items:center;gap:6px;">' + ICONS.mobileApp + ' Mobile & Desktop App Installation</div>' +
+    '<div style="font-size:12px;color:var(--text-muted);margin-bottom:10px;">Install Corner Counter as a full-screen app on your phone, tablet, or desktop for fast 1-tap launch & 100% offline access.</div>' +
+    '<button class="install-app-btn" style="width:100%;justify-content:center;" data-action="prompt-install-app">' + ICONS.mobileApp + ' Download & Install App</button>' +
+    '</div>' +
+    '<div style="margin-top:14px;padding:12px;background:var(--surface-raised);border-radius:12px;border:1px solid var(--border);">' +
     '<div style="font-size:12px;font-weight:700;margin-bottom:8px;">Data Backup & Restore</div>' +
     '<div style="display:flex;gap:8px;">' +
     '<button class="mini-btn" data-action="backup-data">' + ICONS.download + ' Backup JSON</button>' +
@@ -1703,6 +1737,59 @@ function renderSettingsModal() {
     '</div>' +
     '<div class="sheet-footer">' +
     '<button class="btn-teal" data-action="save-settings">Save Settings</button>' +
+    '</div>' +
+    '</div></div>'
+  );
+}
+
+function renderInstallModal() {
+  const isIOS = typeof navigator !== "undefined" && /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
+
+  let bodyContent = "";
+
+  if (isIOS) {
+    bodyContent = (
+      '<div style="text-align:center;margin-bottom:12px;">' +
+      '<div style="font-size:14px;font-weight:700;color:var(--text-primary);">Install App on iPhone / iPad</div>' +
+      '<div style="font-size:12px;color:var(--text-muted);margin-top:2px;">Follow 3 simple steps to add to your Home Screen:</div>' +
+      '</div>' +
+      '<div class="install-steps-list">' +
+      '<div class="install-step-item"><div class="install-step-number">1</div><div class="install-step-text">Tap the <strong>Share button</strong> <span style="font-size:16px;">⎋</span> at the bottom of Safari browser.</div></div>' +
+      '<div class="install-step-item"><div class="install-step-number">2</div><div class="install-step-text">Scroll down and tap <strong>"Add to Home Screen"</strong> <span style="font-size:16px;">➕</span>.</div></div>' +
+      '<div class="install-step-item"><div class="install-step-number">3</div><div class="install-step-text">Tap <strong>Add</strong> in the top right. Launch directly from your home screen!</div></div>' +
+      '</div>'
+    );
+  } else {
+    bodyContent = (
+      '<div style="text-align:center;margin-bottom:12px;">' +
+      '<div style="font-size:14px;font-weight:700;color:var(--text-primary);">Install App on Mobile / Tablet / PC</div>' +
+      '<div style="font-size:12px;color:var(--text-muted);margin-top:2px;">Install Corner Counter as a standalone app for fast 1-tap launch & offline usage.</div>' +
+      '</div>' +
+      '<div class="install-steps-list">' +
+      '<div class="install-step-item"><div class="install-step-number">1</div><div class="install-step-text">Tap <strong>"Install Now"</strong> below or open your browser menu (<strong>⋮</strong>).</div></div>' +
+      '<div class="install-step-item"><div class="install-step-number">2</div><div class="install-step-text">Select <strong>"Install App"</strong> or <strong>"Add to Home screen"</strong>.</div></div>' +
+      '<div class="install-step-item"><div class="install-step-number">3</div><div class="install-step-text">Confirm installation and launch directly from your home screen!</div></div>' +
+      '</div>'
+    );
+  }
+
+  return (
+    '<div class="overlay"><div class="overlay-scrim" data-action="close-install-modal"></div>' +
+    '<div class="sheet" style="max-width:400px;">' +
+    '<div class="sheet-header"><div class="sheet-title">Download Mobile App</div>' +
+    '<button class="sheet-close" data-action="close-install-modal">' + ICONS.x + '</button></div>' +
+    '<div class="sheet-body">' +
+    '<div style="display:flex;align-items:center;justify-content:center;gap:12px;margin-bottom:16px;">' +
+    '<div class="header-logo-badge" style="width:48px;height:48px;"><img src="icons/icon-192.png" alt="App Logo" /></div>' +
+    '<div><div style="font-weight:800;font-size:16px;color:var(--text-primary);">Corner Counter POS</div><div style="font-size:11px;color:var(--text-muted);">Offline & Online Mobile App</div></div>' +
+    '</div>' +
+    bodyContent +
+    '</div>' +
+    '<div class="sheet-footer" style="display:flex;gap:8px;">' +
+    (deferredPwaPrompt
+      ? '<button class="btn-teal" style="flex:1;" data-action="trigger-pwa-prompt">' + ICONS.mobileApp + ' Install Now</button>'
+      : '') +
+    '<button class="mini-btn" style="flex:1;" data-action="close-install-modal">Close</button>' +
     '</div>' +
     '</div></div>'
   );
@@ -1888,6 +1975,38 @@ function attachAppEventHandlers() {
     const action = btn.dataset.action;
 
     switch (action) {
+      case "prompt-install-app":
+        if (deferredPwaPrompt) {
+          deferredPwaPrompt.prompt();
+          deferredPwaPrompt.userChoice.then((choiceResult) => {
+            if (choiceResult.outcome === "accepted") {
+              showToast("App installation accepted!");
+            }
+            deferredPwaPrompt = null;
+            render();
+          });
+        } else {
+          state.installModalOpen = true;
+          render();
+        }
+        break;
+      case "trigger-pwa-prompt":
+        if (deferredPwaPrompt) {
+          deferredPwaPrompt.prompt();
+          deferredPwaPrompt.userChoice.then((choiceResult) => {
+            if (choiceResult.outcome === "accepted") {
+              showToast("App installation accepted!");
+            }
+            deferredPwaPrompt = null;
+            state.installModalOpen = false;
+            render();
+          });
+        }
+        break;
+      case "close-install-modal":
+        state.installModalOpen = false;
+        render();
+        break;
       case "toggle-theme":
         state.theme = state.theme === "dark" ? "light" : "dark";
         document.body.setAttribute("data-theme", state.theme);
