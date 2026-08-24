@@ -75,6 +75,17 @@ npx serve . -l 8080
 
 Open `http://localhost:8080` in any browser.
 
+## Installing on Android (PWA)
+
+This app is a Progressive Web App (PWA) and can be installed on Android devices via Chrome or other modern browsers.
+
+- Host the app over HTTPS (GitHub Pages works) or run locally and access it via `http://localhost`.
+- Open the site in Chrome on your Android device.
+- Chrome will show an install prompt automatically or you can tap the menu and choose "Install app" / "Add to Home screen".
+- On this project the app will also show an "Install App" floating button when the browser supports PWA installation.
+
+If you want to bundle the app as an Android APK, use a Trusted Web Activity (TWA) wrapper in Android Studio or tools like Bubblewrap.
+
 ---
 
 ## 🔑 Login Credentials

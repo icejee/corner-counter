@@ -49,5 +49,39 @@
     });
   }
 </script>
+<!-- PWA install prompt handler for Android/Chrome -->
+<script>
+  (function(){
+    let deferredPrompt = null;
+    window.addEventListener('beforeinstallprompt', (e) => {
+      e.preventDefault();
+      deferredPrompt = e;
+      // create or show the install button
+      let el = document.getElementById('pwa-install');
+      if (!el) {
+        el = document.createElement('div');
+        el.id = 'pwa-install';
+        el.className = 'pwa-install show';
+        el.innerHTML = '<button id="pwa-install-btn">Install App</button>';
+        document.body.appendChild(el);
+        document.getElementById('pwa-install-btn').addEventListener('click', async () => {
+          el.classList.remove('show');
+          if (!deferredPrompt) return;
+          deferredPrompt.prompt();
+          const choice = await deferredPrompt.userChoice;
+          deferredPrompt = null;
+        });
+      } else {
+        el.classList.add('show');
+      }
+    });
+    // hide after appinstalled
+    window.addEventListener('appinstalled', () => {
+      const el = document.getElementById('pwa-install');
+      if (el) el.classList.remove('show');
+      deferredPrompt = null;
+    });
+  })();
+</script>
 </body>
 </html>
