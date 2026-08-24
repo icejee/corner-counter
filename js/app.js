@@ -191,6 +191,89 @@ if (!Storage.get(KEYS.companies, null)) {
   }
 })();
 
+// -- Persistent storage status UI (shows whether storage.persist() granted) --
+async function initStorageStatusUI() {
+  try {
+    const containerId = 'storage-status';
+    let el = document.getElementById(containerId);
+    if (!el) {
+      el = document.createElement('div');
+      el.id = containerId;
+      el.className = 'storage-status';
+      el.textContent = 'Storage: checking...';
+      document.body.appendChild(el);
+    }
+
+    // ask Storage to persist
+    let persisted = false;
+    if (Storage && typeof Storage.ensurePersistentStorage === 'function') {
+      try {
+        persisted = await Storage.ensurePersistentStorage();
+      } catch (e) {
+        persisted = false;
+      }
+    }
+
+    if (persisted) {
+      el.textContent = 'Storage: persistent';
+      el.classList.add('ok');
+      el.classList.remove('warn');
+    } else {
+      el.textContent = 'Storage: best-effort';
+      el.classList.add('warn');
+      el.classList.remove('ok');
+    }
+  } catch (err) {
+    console.warn('initStorageStatusUI failed', err);
+  }
+}
+
+// kick off status UI (non-blocking)
+(function(){
+  try { initStorageStatusUI(); } catch (e) { /* ignore */ }
+})();
+
+// If localStorage is empty but an IndexedDB backup exists, show restore prompt
+async function checkForIndexedDBRestore() {
+  try {
+    const companies = Storage.get(KEYS.companies, null);
+    if (companies && companies.length) return; // we have data
+    if (Storage && typeof Storage.peekIndexedDBBackup === 'function') {
+      const backup = await Storage.peekIndexedDBBackup();
+      if (backup) {
+        // show a simple prompt in the UI
+        const id = 'restore-backup';
+        if (!document.getElementById(id)) {
+          const box = document.createElement('div');
+          box.id = id;
+          box.className = 'restore-backup';
+          box.innerHTML = '<div>Found backup data. Restore?</div>' +
+            '<div style="margin-top:8px"><button id="restore-yes">Yes</button> <button id="restore-no">No</button></div>';
+          document.body.appendChild(box);
+          document.getElementById('restore-yes').addEventListener('click', async () => {
+            try {
+              const ok = await Storage.restoreFromIndexedDB();
+              box.remove();
+              if (ok) {
+                showToast('Restored backup — reloading UI');
+                try { state.companies = Storage.get(KEYS.companies, []); render(); } catch(e){}
+              } else {
+                showToast('Restore failed');
+              }
+            } catch (e) { showToast('Restore failed'); }
+          });
+          document.getElementById('restore-no').addEventListener('click', () => { box.remove(); });
+        }
+      }
+    }
+  } catch (err) {
+    console.warn('checkForIndexedDBRestore failed', err);
+  }
+}
+
+// schedule check once DOM ready
+document.addEventListener('DOMContentLoaded', () => { try { checkForIndexedDBRestore(); } catch(e){} });
+
 // Helpers for Order Tabs
 function getActiveTab() {
   let tab = state.orderTabs.find((t) => t.id === state.activeTabId);

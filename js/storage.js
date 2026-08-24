@@ -139,6 +139,20 @@ const Storage = {
     }
   };
 
+  Storage.peekIndexedDBBackup = async function() {
+    try {
+      const data = await idbGet('backup_v1');
+      if (!data || !data.payload) return null;
+      try {
+        return JSON.parse(data.payload);
+      } catch (e) {
+        return null;
+      }
+    } catch (err) {
+      return null;
+    }
+  };
+
   // Run persistence request and background backup; non-blocking.
   (async () => {
     try {

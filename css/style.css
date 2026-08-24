@@ -2255,6 +2255,22 @@ input, select {
 }
 .pwa-install.show { display: block; }
 
+/* small status pill for storage persistence */
+.storage-status {
+  position: fixed;
+  left: 18px;
+  bottom: 18px;
+  z-index: 9998;
+  background: rgba(255,255,255,0.02);
+  color: var(--text-muted);
+  padding: 8px 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(255,255,255,0.03);
+  font-size: 12px;
+}
+.storage-status.ok { color: var(--teal); }
+.storage-status.warn { color: var(--accent); }
+
 .login-form {
   display: flex;
   flex-direction: column;
