@@ -269,6 +269,27 @@ input, select {
   border: 1px solid rgba(244, 63, 94, 0.3);
 }
 
+.status-pill.cloud-synced {
+  background: rgba(6, 182, 212, 0.15);
+  color: var(--cyan);
+  border: 1px solid rgba(6, 182, 212, 0.35);
+  cursor: pointer;
+}
+
+.status-pill.cloud-pending {
+  background: var(--amber-glow);
+  color: var(--amber);
+  border: 1px solid rgba(245, 158, 11, 0.4);
+  cursor: pointer;
+  animation: pulseAmber 2s infinite;
+}
+
+.status-pill.cloud-syncing {
+  background: rgba(99, 102, 241, 0.2);
+  color: #a5b4fc;
+  border: 1px solid rgba(99, 102, 241, 0.4);
+}
+
 .logout-btn {
   background: var(--surface-raised);
   color: var(--text-secondary);
@@ -2254,6 +2275,22 @@ input, select {
   cursor: pointer;
 }
 .pwa-install.show { display: block; }
+
+/* small status pill for storage persistence */
+.storage-status {
+  position: fixed;
+  left: 18px;
+  bottom: 18px;
+  z-index: 9998;
+  background: rgba(255,255,255,0.02);
+  color: var(--text-muted);
+  padding: 8px 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(255,255,255,0.03);
+  font-size: 12px;
+}
+.storage-status.ok { color: var(--teal); }
+.storage-status.warn { color: var(--accent); }
 
 .login-form {
   display: flex;

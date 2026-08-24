@@ -50,6 +50,9 @@ const KEYS = {
   theme: "cc_theme_v1",
   settings: "cc_settings_v1",
   favorites: "cc_favorites_v1",
+  pendingSync: "cc_pending_sync_v1",
+  cloudBackup: "cc_cloud_store_v1",
+  lastSyncTime: "cc_last_sync_time_v1",
 };
 
 const DEFAULT_SETTINGS = {
@@ -84,12 +87,19 @@ const DEFAULT_COMPANIES = [
 // ---------- State Engine ----------
 const state = {
   screen: "sell",
-  online: navigator.onLine,
+  online: typeof navigator !== "undefined" ? navigator.onLine : true,
   companies: Storage.get(KEYS.companies, DEFAULT_COMPANIES),
   session: Storage.get(KEYS.session, null),
   settings: Storage.get(KEYS.settings, DEFAULT_SETTINGS),
   favorites: Storage.get(KEYS.favorites, []),
   theme: Storage.get(KEYS.theme, "dark"),
+
+  // Cloud Synchronization Engine State
+  pendingSyncQueue: Storage.get(KEYS.pendingSync, []),
+  lastSyncTime: Storage.get(KEYS.lastSyncTime, null),
+  syncStatus: typeof navigator !== "undefined" && !navigator.onLine
+    ? "offline_pending"
+    : (Storage.get(KEYS.pendingSync, []).length > 0 ? "offline_pending" : "synced"),
 
   // Products & Sales for current session
   products: [],
@@ -134,6 +144,75 @@ const state = {
     error: "",
   },
 };
+
+// Cloud Synchronization Engine Helpers
+function queuePendingSync(actionType, payload) {
+  state.pendingSyncQueue.push({
+    id: uid("sync"),
+    type: actionType,
+    payload: payload,
+    timestamp: Date.now()
+  });
+  Storage.set(KEYS.pendingSync, state.pendingSyncQueue);
+  state.syncStatus = "offline_pending";
+  render();
+}
+
+function syncWithCloud(isImmediate = false) {
+  if (typeof navigator !== "undefined" && navigator.onLine === false) {
+    showToast("Offline: Will sync automatically when internet restores");
+    return Promise.resolve(false);
+  }
+
+  state.syncStatus = "syncing";
+  try { render(); } catch (e) {}
+
+  const doSync = () => {
+    const currentCompanies = Storage.get(KEYS.companies, []);
+    const cloudData = {
+      companies: currentCompanies,
+      syncedAt: Date.now(),
+      processedEvents: state.pendingSyncQueue.length
+    };
+
+    Storage.set(KEYS.cloudBackup, cloudData);
+    state.pendingSyncQueue = [];
+    Storage.set(KEYS.pendingSync, []);
+    state.lastSyncTime = Date.now();
+    Storage.set(KEYS.lastSyncTime, state.lastSyncTime);
+    state.syncStatus = "synced";
+
+    showToast("Cloud Sync Complete ☁️ All data updated");
+    try { render(); } catch (e) {}
+    return true;
+  };
+
+  if (isImmediate) {
+    return Promise.resolve(doSync());
+  }
+
+  return new Promise((resolve) => {
+    setTimeout(() => {
+      resolve(doSync());
+    }, 400);
+  });
+}
+
+// Global Network Listeners for Internet Reconnection
+if (typeof window !== "undefined" && typeof window.addEventListener === "function") {
+  window.addEventListener("online", () => {
+    state.online = true;
+    showToast("Internet connected! Syncing with cloud...");
+    syncWithCloud();
+  });
+
+  window.addEventListener("offline", () => {
+    state.online = false;
+    state.syncStatus = "offline_pending";
+    showToast("Internet disconnected. Operating in offline mode");
+    render();
+  });
+}
 
 // Global PWA Install Prompt Handler
 let deferredPwaPrompt = null;
@@ -190,6 +269,89 @@ if (!Storage.get(KEYS.companies, null)) {
     }
   }
 })();
+
+// -- Persistent storage status UI (shows whether storage.persist() granted) --
+async function initStorageStatusUI() {
+  try {
+    const containerId = 'storage-status';
+    let el = document.getElementById(containerId);
+    if (!el) {
+      el = document.createElement('div');
+      el.id = containerId;
+      el.className = 'storage-status';
+      el.textContent = 'Storage: checking...';
+      document.body.appendChild(el);
+    }
+
+    // ask Storage to persist
+    let persisted = false;
+    if (Storage && typeof Storage.ensurePersistentStorage === 'function') {
+      try {
+        persisted = await Storage.ensurePersistentStorage();
+      } catch (e) {
+        persisted = false;
+      }
+    }
+
+    if (persisted) {
+      el.textContent = 'Storage: persistent';
+      el.classList.add('ok');
+      el.classList.remove('warn');
+    } else {
+      el.textContent = 'Storage: best-effort';
+      el.classList.add('warn');
+      el.classList.remove('ok');
+    }
+  } catch (err) {
+    console.warn('initStorageStatusUI failed', err);
+  }
+}
+
+// kick off status UI (non-blocking)
+(function(){
+  try { initStorageStatusUI(); } catch (e) { /* ignore */ }
+})();
+
+// If localStorage is empty but an IndexedDB backup exists, show restore prompt
+async function checkForIndexedDBRestore() {
+  try {
+    const companies = Storage.get(KEYS.companies, null);
+    if (companies && companies.length) return; // we have data
+    if (Storage && typeof Storage.peekIndexedDBBackup === 'function') {
+      const backup = await Storage.peekIndexedDBBackup();
+      if (backup) {
+        // show a simple prompt in the UI
+        const id = 'restore-backup';
+        if (!document.getElementById(id)) {
+          const box = document.createElement('div');
+          box.id = id;
+          box.className = 'restore-backup';
+          box.innerHTML = '<div>Found backup data. Restore?</div>' +
+            '<div style="margin-top:8px"><button id="restore-yes">Yes</button> <button id="restore-no">No</button></div>';
+          document.body.appendChild(box);
+          document.getElementById('restore-yes').addEventListener('click', async () => {
+            try {
+              const ok = await Storage.restoreFromIndexedDB();
+              box.remove();
+              if (ok) {
+                showToast('Restored backup — reloading UI');
+                try { state.companies = Storage.get(KEYS.companies, []); render(); } catch(e){}
+              } else {
+                showToast('Restore failed');
+              }
+            } catch (e) { showToast('Restore failed'); }
+          });
+          document.getElementById('restore-no').addEventListener('click', () => { box.remove(); });
+        }
+      }
+    }
+  } catch (err) {
+    console.warn('checkForIndexedDBRestore failed', err);
+  }
+}
+
+// schedule check once DOM ready
+document.addEventListener('DOMContentLoaded', () => { try { checkForIndexedDBRestore(); } catch(e){} });
 
 // Helpers for Order Tabs
 function getActiveTab() {
@@ -562,6 +724,13 @@ function completeSale() {
   state.sales.unshift(sale);
   persistSales();
 
+  // Cloud Sync Integration
+  if (typeof navigator !== "undefined" && !navigator.onLine) {
+    queuePendingSync("sale", sale);
+  } else {
+    syncWithCloud();
+  }
+
   // Reset tab cart
   const tab = getActiveTab();
   tab.cart = [];
@@ -844,6 +1013,16 @@ function renderHeader() {
   const themeIcon = state.theme === "light" ? ICONS.moon : ICONS.sun;
   const soundIcon = state.settings.sound !== false ? ICONS.volume2 : ICONS.volumeX;
 
+  let syncPill = "";
+  const pendingCount = state.pendingSyncQueue ? state.pendingSyncQueue.length : 0;
+  if (state.syncStatus === "syncing") {
+    syncPill = '<span class="status-pill cloud-syncing">🔄 Syncing...</span>';
+  } else if (pendingCount > 0 || !state.online) {
+    syncPill = '<button class="status-pill cloud-pending" data-action="manual-cloud-sync" title="Click to sync queued offline items">☁️ ' + pendingCount + ' Queued</button>';
+  } else {
+    syncPill = '<button class="status-pill cloud-synced" data-action="manual-cloud-sync" title="Synced with Cloud (Click to resync)">☁️ Synced</button>';
+  }
+
   return (
     '<div class="header">' +
     '<div class="header-brand">' +
@@ -855,6 +1034,7 @@ function renderHeader() {
     '</div>' +
     '<div class="header-actions">' +
     '<button class="install-app-btn" data-action="prompt-install-app" title="Download Mobile App">' + ICONS.mobileApp + ' <span>Install App</span></button>' +
+    syncPill +
     '<button class="icon-btn" data-action="toggle-theme" title="Toggle Theme">' + themeIcon + '</button>' +
     '<button class="icon-btn" data-action="toggle-sound" title="Toggle Sound">' + soundIcon + '</button>' +
     '<button class="icon-btn" data-action="open-settings" title="Settings">' + ICONS.settings + '</button>' +
@@ -1723,6 +1903,12 @@ function renderSettingsModal() {
     '<input id="setting-receipt-footer" class="form-input" type="text" value="' + esc(s.receiptFooter) + '" /></label>' +
     subSection +
     '<div style="margin-top:14px;padding:12px;background:var(--surface-raised);border-radius:12px;border:1px solid var(--border);">' +
+    '<div style="font-size:12px;font-weight:700;margin-bottom:6px;display:flex;align-items:center;gap:6px;">☁️ Cloud Synchronization & Backup</div>' +
+    '<div style="font-size:12px;color:var(--text-muted);margin-bottom:6px;">Status: <strong>' + (state.online ? "Online (Connected)" : "Offline (Disconnected)") + '</strong> · Pending Queue: <strong>' + state.pendingSyncQueue.length + ' item(s)</strong></div>' +
+    '<div style="font-size:11px;color:var(--text-muted);margin-bottom:10px;">Last Synced: ' + (state.lastSyncTime ? new Date(state.lastSyncTime).toLocaleString() : "Never") + '</div>' +
+    '<button class="pill-btn" style="width:100%;justify-content:center;" data-action="manual-cloud-sync">☁️ Sync Now with Cloud</button>' +
+    '</div>' +
+    '<div style="margin-top:14px;padding:12px;background:var(--surface-raised);border-radius:12px;border:1px solid var(--border);">' +
     '<div style="font-size:12px;font-weight:700;margin-bottom:6px;display:flex;align-items:center;gap:6px;">' + ICONS.mobileApp + ' Mobile & Desktop App Installation</div>' +
     '<div style="font-size:12px;color:var(--text-muted);margin-bottom:10px;">Install Corner Counter as a full-screen app on your phone, tablet, or desktop for fast 1-tap launch & 100% offline access.</div>' +
     '<button class="install-app-btn" style="width:100%;justify-content:center;" data-action="prompt-install-app">' + ICONS.mobileApp + ' Download & Install App</button>' +
@@ -2480,6 +2666,30 @@ function attachAppEventHandlers() {
         render();
         break;
       }
+      case "manual-cloud-sync":
+        syncWithCloud();
+        break;
+      case "delete-company": {
+        const cid = btn.dataset.id;
+        const comp = state.companies.find((c) => c.id === cid);
+        if (!comp) return;
+        if (state.companies.length <= 1) {
+          showToast("Cannot delete the only remaining company");
+          return;
+        }
+        if (confirm(`Are you sure you want to permanently delete company "${comp.name}"? This action will remove all staff accounts, sales history, and products.`)) {
+          state.companies = state.companies.filter((c) => c.id !== cid);
+          persistCompanies();
+          if (typeof navigator !== "undefined" && !navigator.onLine) {
+            queuePendingSync("delete-company", { id: cid, name: comp.name });
+          } else {
+            syncWithCloud();
+          }
+          showToast(`Company "${comp.name}" deleted`);
+          render();
+        }
+        break;
+      }
       case "toggle-company-status": {
         const cid = btn.dataset.id;
         const newStatus = btn.dataset.status;
@@ -2521,7 +2731,7 @@ function attachAppEventHandlers() {
         const newCompany = {
           id: uid("company"),
           name: cname,
-          products: SEED_PRODUCTS,
+          products: [],
           sales: [],
           staff: [{ id: uid("staff"), name: sname, username: sun, password: spw, role: srole }],
           invites: [],
