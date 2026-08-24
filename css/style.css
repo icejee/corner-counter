@@ -322,16 +322,24 @@ input, select {
   .header {
     padding: calc(env(safe-area-inset-top, 0px) + 8px) 10px 8px;
     gap: 6px;
+    flex-wrap: wrap;
   }
 
   .header-brand {
     gap: 6px;
     min-width: 0;
-    flex-shrink: 0;
+    flex-shrink: 1;
+    overflow: hidden;
+  }
+
+  .header-logo-badge {
+    width: 32px;
+    height: 32px;
   }
 
   .header-title-wrap {
-    max-width: 120px;
+    max-width: 110px;
+    min-width: 0;
   }
 
   .header-title {
@@ -349,16 +357,11 @@ input, select {
   }
 
   .header-actions {
-    gap: 4px;
+    gap: 5px;
     flex: 1;
     justify-content: flex-end;
-    overflow-x: auto;
-    scrollbar-width: none;
-    padding-bottom: 2px;
-  }
-
-  .header-actions::-webkit-scrollbar {
-    display: none;
+    flex-wrap: wrap;
+    align-content: center;
   }
 
   .install-app-btn {
@@ -368,10 +371,19 @@ input, select {
     flex-shrink: 0;
   }
 
+  .install-app-btn span {
+    display: none;
+  }
+
   .icon-btn {
-    width: 32px;
-    height: 32px;
+    width: 30px;
+    height: 30px;
     flex-shrink: 0;
+  }
+
+  .icon-btn svg {
+    width: 15px;
+    height: 15px;
   }
 
   .status-pill {
@@ -385,9 +397,64 @@ input, select {
   }
 
   .logout-btn {
-    padding: 5px 9px;
+    padding: 5px 10px;
     font-size: 11px;
     flex-shrink: 0;
+    white-space: nowrap;
+  }
+}
+
+/* Extra-small devices (narrow phones) */
+@media (max-width: 400px) {
+  .header {
+    padding: calc(env(safe-area-inset-top, 0px) + 6px) 8px 6px;
+    gap: 4px;
+  }
+
+  .header-logo-badge {
+    width: 28px;
+    height: 28px;
+  }
+
+  .header-title-wrap {
+    max-width: 90px;
+  }
+
+  .header-title {
+    font-size: 12px;
+  }
+
+  .header-subinfo {
+    font-size: 9px;
+  }
+
+  .header-actions {
+    gap: 4px;
+  }
+
+  .install-app-btn {
+    padding: 4px 7px;
+    font-size: 10px;
+  }
+
+  .icon-btn {
+    width: 28px;
+    height: 28px;
+  }
+
+  .icon-btn svg {
+    width: 14px;
+    height: 14px;
+  }
+
+  .status-pill {
+    padding: 3px 6px;
+    font-size: 9px;
+  }
+
+  .logout-btn {
+    padding: 4px 8px;
+    font-size: 10px;
   }
 }
 
