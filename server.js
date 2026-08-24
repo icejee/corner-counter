@@ -41,7 +41,6 @@ let db = loadDB();
 // ——————————————————————————————
 // Middleware & CORS Configuration
 // ——————————————————————————————
-const cors = require("cors");
 const allowedOrigins = [
   "https://corner-counter-eosin.vercel.app",
   "https://corner-counter-2.onrender.com",
@@ -212,7 +211,7 @@ app.post("/api/sync", (req, res) => {
   });
 });
 
-app.get("/api/sync/:deviceId?", (req, res) => {
+const syncGetHandler = (req, res) => {
   res.json({
     found: true,
     companies: db.companies || [],
@@ -220,7 +219,10 @@ app.get("/api/sync/:deviceId?", (req, res) => {
     deletedCompanyIds: db.deletedCompanyIds || [],
     lastSyncedAt: db.lastSyncedAt || Date.now()
   });
-});
+};
+
+app.get("/api/sync", syncGetHandler);
+app.get("/api/sync/:deviceId", syncGetHandler);
 
 // ——————————————————————————————
 // SPA Fallback — serve index.html for all unmatched routes
