@@ -1,10 +1,17 @@
 {
   "name": "corner-counter",
-  "version": "0.1.0",
+  "version": "1.0.0",
+  "description": "Corner Counter POS — Offline-first Point of Sale Web App & Mobile PWA",
   "private": true,
+  "main": "server.js",
   "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js",
     "test": "npx playwright test",
     "test:headed": "npx playwright test --headed"
+  },
+  "engines": {
+    "node": ">=18.0.0"
   },
   "devDependencies": {
     "@playwright/test": "^1.40.0"

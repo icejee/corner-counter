@@ -1,0 +1,28 @@
+# Corner Counter POS — Render.com Deployment Configuration
+# Docs: https://render.com/docs/render-yaml-spec
+
+services:
+  - type: web
+    name: corner-counter-pos
+    runtime: node
+    plan: free          # Free tier — always-on for 750 hrs/month
+    region: oregon      # Choose closest to you: oregon | frankfurt | singapore | ohio
+
+    # Build command (install dependencies)
+    buildCommand: npm install
+
+    # Start command (run the Express server)
+    startCommand: node server.js
+
+    # Environment variables
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 3000
+
+    # Health check — Render pings this to confirm the server is alive
+    healthCheckPath: /health
+
+    # Auto-deploy when you push to the GitHub branch
+    autoDeploy: true
