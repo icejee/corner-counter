@@ -10,72 +10,182 @@ const express = require("express");
 const path = require("path");
 const cors = require("cors");
 
+const fs = require("fs");
+
 const app = express();
 const PORT = process.env.PORT || 3000;
+const DB_FILE = path.join(__dirname, "cloud_db.json");
+
+// Persistent Store Helper
+function loadDB() {
+  try {
+    if (fs.existsSync(DB_FILE)) {
+      return JSON.parse(fs.readFileSync(DB_FILE, "utf8"));
+    }
+  } catch (err) {
+    console.error("Error reading cloud_db.json:", err);
+  }
+  return { devices: {}, companies: [], lastSyncedAt: Date.now() };
+}
+
+function saveDB(data) {
+  try {
+    fs.writeFileSync(DB_FILE, JSON.stringify(data, null, 2), "utf8");
+  } catch (err) {
+    console.error("Error writing to cloud_db.json:", err);
+  }
+}
+
+let db = loadDB();
 
 // ——————————————————————————————
 // Middleware
 // ——————————————————————————————
-app.use(cors());
-app.use(express.json());
+app.use(cors({ origin: "*" }));
+app.use(express.json({ limit: "50mb" }));
+app.use(express.urlencoded({ extended: true, limit: "50mb" }));
 
 // Security & performance headers
 app.use((req, res, next) => {
-  // Cache static assets (icons, CSS, JS) for 1 hour in browsers
   if (req.url.match(/\.(png|jpg|jpeg|gif|webp|svg|ico|woff2?|ttf)$/i)) {
     res.setHeader("Cache-Control", "public, max-age=3600");
   }
-  // Never cache the service worker or HTML (so PWA updates properly)
   if (req.url === "/" || req.url === "/index.html" || req.url.includes("service-worker")) {
     res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
   }
-  // Required for PWA Service Worker scope
   res.setHeader("Service-Worker-Allowed", "/");
   next();
 });
 
 // ——————————————————————————————
-// Serve Static Files
+// Health Check Endpoints (Both /health and /api/health)
 // ——————————————————————————————
-app.use(express.static(path.join(__dirname), {
-  index: "index.html",
-  extensions: ["html"],
-}));
-
-// ——————————————————————————————
-// Health Check Endpoint (Render uses this to verify the server is running)
-// ——————————————————————————————
-app.get("/health", (req, res) => {
+const healthHandler = (req, res) => {
   res.json({
     status: "ok",
     app: "Corner Counter POS",
     version: "1.0.0",
     timestamp: new Date().toISOString(),
     uptime: process.uptime(),
+    devicesCount: Object.keys(db.devices || {}).length,
+  });
+};
+
+app.get("/health", healthHandler);
+app.get("/api/health", healthHandler);
+
+// ——————————————————————————————
+// Remote Company Management API Endpoints (Super Admin)
+// ——————————————————————————————
+
+// Get all companies from Cloud Master DB
+app.get("/api/companies", (req, res) => {
+  res.json({
+    success: true,
+    companies: db.companies || [],
+    deletedCompanyIds: db.deletedCompanyIds || [],
+    lastSyncedAt: db.lastSyncedAt || Date.now()
+  });
+});
+
+// Delete company remotely (Super Admin)
+app.post("/api/companies/delete", (req, res) => {
+  const { companyId } = req.body || {};
+  if (!companyId) {
+    return res.status(400).json({ error: "Missing companyId" });
+  }
+
+  db.companies = (db.companies || []).filter(c => c.id !== companyId);
+  db.deletedCompanyIds = db.deletedCompanyIds || [];
+  if (!db.deletedCompanyIds.includes(companyId)) {
+    db.deletedCompanyIds.push(companyId);
+  }
+  db.lastSyncedAt = Date.now();
+  saveDB(db);
+
+  console.log(`[Remote Delete] Super Admin permanently deleted company ID '${companyId}' from Cloud Server`);
+
+  res.json({
+    success: true,
+    message: `Company ${companyId} deleted from Cloud Server`,
+    companies: db.companies,
+    deletedCompanyIds: db.deletedCompanyIds,
+    lastSyncedAt: db.lastSyncedAt
   });
 });
 
 // ——————————————————————————————
-// Cloud Sync API Endpoint (stores queued offline data per device)
+// Cloud Sync API Endpoint (Automatic Offline -> Online Sync)
 // ——————————————————————————————
-const syncStore = {}; // In-memory store (persists while server is running)
-
 app.post("/api/sync", (req, res) => {
-  const { deviceId, companies, syncedAt } = req.body;
-  if (!deviceId) {
-    return res.status(400).json({ error: "Missing deviceId" });
+  const { deviceId, companies, deletedCompanyIds, pendingQueue, syncedAt } = req.body || {};
+  const devId = deviceId || "pos_terminal_" + Date.now();
+
+  db.deletedCompanyIds = db.deletedCompanyIds || [];
+  db.companies = db.companies || [];
+
+  // 1. Process any incoming deleted company IDs from client
+  if (Array.isArray(deletedCompanyIds)) {
+    deletedCompanyIds.forEach(id => {
+      if (!db.deletedCompanyIds.includes(id)) {
+        db.deletedCompanyIds.push(id);
+      }
+    });
   }
-  syncStore[deviceId] = { companies, syncedAt, receivedAt: Date.now() };
-  console.log(`[Sync] Device ${deviceId} synced at ${new Date().toISOString()}`);
-  res.json({ success: true, message: "Data synced to cloud", syncedAt: Date.now() });
+
+  // 2. Process pending sync queue items (e.g. offline delete-company actions)
+  if (Array.isArray(pendingQueue)) {
+    pendingQueue.forEach(item => {
+      if (item && item.type === "delete-company" && item.payload && item.payload.id) {
+        const delId = item.payload.id;
+        if (!db.deletedCompanyIds.includes(delId)) {
+          db.deletedCompanyIds.push(delId);
+        }
+      }
+    });
+  }
+
+  // 3. Filter out all deleted companies
+  if (Array.isArray(companies)) {
+    db.companies = companies.filter(c => !db.deletedCompanyIds.includes(c.id));
+  } else {
+    db.companies = db.companies.filter(c => !db.deletedCompanyIds.includes(c.id));
+  }
+
+  // 4. Save device snapshot
+  db.devices = db.devices || {};
+  db.devices[devId] = {
+    companies: db.companies,
+    pendingQueueCount: (pendingQueue || []).length,
+    syncedAt: syncedAt || Date.now(),
+    receivedAt: Date.now()
+  };
+
+  db.lastSyncedAt = Date.now();
+  saveDB(db);
+
+  console.log(`[Cloud Sync] Terminal '${devId}' synchronized (${db.companies.length} active companies, ${db.deletedCompanyIds.length} deleted tracked)`);
+
+  res.json({
+    success: true,
+    message: "Cloud Sync Successful",
+    syncedAt: db.lastSyncedAt,
+    cloudCompanies: db.companies,
+    deletedCompanyIds: db.deletedCompanyIds
+  });
 });
 
-app.get("/api/sync/:deviceId", (req, res) => {
-  const { deviceId } = req.params;
-  if (!syncStore[deviceId]) {
-    return res.json({ found: false, companies: null });
+app.get("/api/sync/:deviceId?", (req, res) => {
+  const devId = req.params.deviceId;
+  if (devId && db.devices && db.devices[devId]) {
+    return res.json({ found: true, ...db.devices[devId] });
   }
-  res.json({ found: true, ...syncStore[deviceId] });
+  res.json({
+    found: true,
+    companies: db.companies || [],
+    deletedCompanyIds: db.deletedCompanyIds || [],
+    lastSyncedAt: db.lastSyncedAt || Date.now()
+  });
 });
 
 // ——————————————————————————————

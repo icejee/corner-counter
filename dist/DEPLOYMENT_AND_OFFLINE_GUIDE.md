@@ -75,6 +75,14 @@ You can host Corner Counter online for free on any modern static hosting platfor
 | **Company Admin** | `admin` | `admin123` |
 | **Front Desk / Staff** | `staff` | `staff123` |
 
+### Key Admin & Cloud Capabilities:
+- **🟢 / ⛔ Superadmin Activate & Deactivate Controls**: Superadmin can toggle 1-click active/deactivated status per company.
+- **🗑️ Superadmin Company Deletion**: Superadmin can permanently delete any company, its staff credentials, sales records, and products from the system with confirmation.
+- **☁️ Cloud Data Synchronization (Offline ➔ Online Sync)**:
+  - When offline, POS transactions and company updates are automatically queued in the local sync queue (`cc_pending_sync_v1`).
+  - As soon as an internet connection is established, the application automatically uploads all queued data to the cloud backup server (`cc_cloud_store_v1`) and updates the sync indicator.
+  - Manual sync can be triggered anytime via the **`☁️ Synced` / `☁️ Queued`** header pill or **⚙️ POS Store Settings**.
+
 ---
 
 ## 💾 5. Offline Data & Backups

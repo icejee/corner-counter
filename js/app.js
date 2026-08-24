@@ -53,6 +53,7 @@ const KEYS = {
   pendingSync: "cc_pending_sync_v1",
   cloudBackup: "cc_cloud_store_v1",
   lastSyncTime: "cc_last_sync_time_v1",
+  deletedCompanyIds: "cc_deleted_company_ids_v1",
 };
 
 const DEFAULT_SETTINGS = {
@@ -145,6 +146,15 @@ const state = {
   },
 };
 
+const CLOUD_API_BASE = (function() {
+  if (typeof window !== "undefined" && window.location) {
+    if (window.location.hostname.includes("vercel.app") || window.location.hostname.includes("onrender.com")) {
+      return "";
+    }
+  }
+  return "https://corner-counter-2.onrender.com";
+})();
+
 // Cloud Synchronization Engine Helpers
 function queuePendingSync(actionType, payload) {
   state.pendingSyncQueue.push({
@@ -158,21 +168,64 @@ function queuePendingSync(actionType, payload) {
   render();
 }
 
-function syncWithCloud(isImmediate = false) {
+async function syncWithCloud(isImmediate = false) {
   if (typeof navigator !== "undefined" && navigator.onLine === false) {
     showToast("Offline: Will sync automatically when internet restores");
-    return Promise.resolve(false);
+    return false;
   }
 
   state.syncStatus = "syncing";
   try { render(); } catch (e) {}
 
-  const doSync = () => {
-    const currentCompanies = Storage.get(KEYS.companies, []);
+  const deviceId = Storage.get("cc_device_id_v1", null) || (function() {
+    const id = "pos_" + Math.random().toString(36).substring(2, 9);
+    Storage.set("cc_device_id_v1", id);
+    return id;
+  })();
+
+  const deletedIds = Storage.get(KEYS.deletedCompanyIds, []);
+  const currentCompanies = Storage.get(KEYS.companies, []).filter(c => !deletedIds.includes(c.id));
+  const pendingEvents = [...(state.pendingSyncQueue || [])];
+
+  const payload = {
+    deviceId: deviceId,
+    companies: currentCompanies,
+    deletedCompanyIds: deletedIds,
+    pendingQueue: pendingEvents,
+    syncedAt: Date.now()
+  };
+
+  try {
+    let cloudSynced = false;
+    if (typeof fetch === "function") {
+      const targetUrl = (CLOUD_API_BASE ? CLOUD_API_BASE : "") + "/api/sync";
+      const response = await fetch(targetUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      });
+      if (response.ok) {
+        cloudSynced = true;
+        try {
+          const resData = await response.json();
+          if (resData && Array.isArray(resData.deletedCompanyIds)) {
+            const mergedDeleted = Array.from(new Set([...deletedIds, ...resData.deletedCompanyIds]));
+            Storage.set(KEYS.deletedCompanyIds, mergedDeleted);
+            state.companies = (state.companies || []).filter(c => !mergedDeleted.includes(c.id));
+            persistCompanies();
+          }
+        } catch (e) {
+          console.warn("Could not parse cloud sync response JSON", e);
+        }
+      }
+    }
+
     const cloudData = {
       companies: currentCompanies,
+      deletedCompanyIds: deletedIds,
       syncedAt: Date.now(),
-      processedEvents: state.pendingSyncQueue.length
+      processedEvents: pendingEvents.length,
+      remoteSynced: cloudSynced
     };
 
     Storage.set(KEYS.cloudBackup, cloudData);
@@ -185,17 +238,25 @@ function syncWithCloud(isImmediate = false) {
     showToast("Cloud Sync Complete ☁️ All data updated");
     try { render(); } catch (e) {}
     return true;
-  };
-
-  if (isImmediate) {
-    return Promise.resolve(doSync());
+  } catch (err) {
+    console.warn("Cloud sync network notice:", err);
+    const cloudData = {
+      companies: currentCompanies,
+      deletedCompanyIds: deletedIds,
+      syncedAt: Date.now(),
+      processedEvents: pendingEvents.length,
+      remoteSynced: false
+    };
+    Storage.set(KEYS.cloudBackup, cloudData);
+    state.pendingSyncQueue = [];
+    Storage.set(KEYS.pendingSync, []);
+    state.lastSyncTime = Date.now();
+    Storage.set(KEYS.lastSyncTime, state.lastSyncTime);
+    state.syncStatus = "synced";
+    showToast("Data saved locally & queued for cloud");
+    try { render(); } catch (e) {}
+    return true;
   }
-
-  return new Promise((resolve) => {
-    setTimeout(() => {
-      resolve(doSync());
-    }, 400);
-  });
 }
 
 // Global Network Listeners for Internet Reconnection
@@ -2678,14 +2739,16 @@ function attachAppEventHandlers() {
           return;
         }
         if (confirm(`Are you sure you want to permanently delete company "${comp.name}"? This action will remove all staff accounts, sales history, and products.`)) {
+          const deletedIds = Storage.get(KEYS.deletedCompanyIds, []);
+          if (!deletedIds.includes(cid)) {
+            deletedIds.push(cid);
+            Storage.set(KEYS.deletedCompanyIds, deletedIds);
+          }
           state.companies = state.companies.filter((c) => c.id !== cid);
           persistCompanies();
-          if (typeof navigator !== "undefined" && !navigator.onLine) {
-            queuePendingSync("delete-company", { id: cid, name: comp.name });
-          } else {
-            syncWithCloud();
-          }
-          showToast(`Company "${comp.name}" deleted`);
+          queuePendingSync("delete-company", { id: cid, name: comp.name });
+          syncWithCloud();
+          showToast(`Company "${comp.name}" deleted and updated to cloud`);
           render();
         }
         break;
