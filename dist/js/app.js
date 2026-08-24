@@ -179,11 +179,7 @@ async function syncWithCloud(isImmediate = false) {
   state.syncStatus = "syncing";
   try { render(); } catch (e) {}
 
-  const deviceId = Storage.get("cc_device_id_v1", null) || (function() {
-    const id = "pos_" + Math.random().toString(36).substring(2, 9);
-    Storage.set("cc_device_id_v1", id);
-    return id;
-  })();
+  const deviceId = "master_terminal";
 
   const deletedIds = Storage.get(KEYS.deletedCompanyIds, []);
   const currentCompanies = Storage.get(KEYS.companies, []).filter(c => !deletedIds.includes(c.id));
@@ -199,8 +195,11 @@ async function syncWithCloud(isImmediate = false) {
 
   const targetUrls = Array.from(new Set([
     (CLOUD_API_BASE ? CLOUD_API_BASE : "") + "/api/sync",
+    (CLOUD_API_BASE ? CLOUD_API_BASE : "") + "/api/sync/master_terminal",
     "/api/sync",
-    "https://corner-counter-2.onrender.com/api/sync"
+    "/api/sync/master_terminal",
+    "https://corner-counter-2.onrender.com/api/sync",
+    "https://corner-counter-2.onrender.com/api/sync/master_terminal"
   ])).filter(u => !!u);
 
   let cloudSynced = false;
@@ -267,8 +266,11 @@ async function pullFromCloud(silent = false) {
 
   const targetUrls = Array.from(new Set([
     (CLOUD_API_BASE ? CLOUD_API_BASE : "") + "/api/sync",
+    (CLOUD_API_BASE ? CLOUD_API_BASE : "") + "/api/sync/master_terminal",
     "/api/sync",
-    "https://corner-counter-2.onrender.com/api/sync"
+    "/api/sync/master_terminal",
+    "https://corner-counter-2.onrender.com/api/sync",
+    "https://corner-counter-2.onrender.com/api/sync/master_terminal"
   ])).filter(u => !!u);
 
   for (const url of targetUrls) {
