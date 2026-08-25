@@ -1,16 +1,17 @@
 // Offline-First PWA Service Worker for Corner Counter POS
-const CACHE_NAME = "corner-counter-v15-instant-refresh";
+const CACHE_NAME = "corner-counter-v16-instant-refresh";
 
 const ASSETS = [
   "./",
   "./index.html",
   "./manifest.json",
-  "./css/style.css?v=15",
-  "./js/storage.js?v=15",
-  "./js/audio.js?v=15",
+  "./css/style.css?v=16",
+  "./js/storage.js?v=16",
+  "./js/bluetooth-printer.js?v=16",
+  "./js/audio.js?v=16",
   "./js/confetti.js",
-  "./js/stars.js?v=15",
-  "./js/app.js?v=15",
+  "./js/stars.js?v=16",
+  "./js/app.js?v=16",
   "./icons/favicon-16.png",
   "./icons/favicon-32.png",
   "./icons/icon-192.png",

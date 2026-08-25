@@ -26,6 +26,7 @@ const ICONS = {
   starFilled: '<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="1"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>',
   park: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M9 17V7h4a3 3 0 0 1 0 6H9"/></svg>',
   print: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect width="12" height="8" x="6" y="14"/></svg>',
+  bluetooth: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6.5 6.5 17.5 17.5 12 23 12 1 17.5 6.5 6.5 17.5"/></svg>',
   card: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="20" height="14" x="2" y="5" rx="2"/><line x1="2" x2="22" y1="10" y2="10"/></svg>',
   cash: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="20" height="12" x="2" y="6" rx="2"/><circle cx="12" cy="12" r="2"/><path d="M6 12h.01M18 12h.01"/></svg>',
   qr: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="5" height="5" x="3" y="3" rx="1"/><rect width="5" height="5" x="16" y="3" rx="1"/><rect width="5" height="5" x="3" y="16" rx="1"/><path d="M21 16h-3a2 2 0 0 0-2 2v3"/><path d="M21 21v.01"/><path d="M12 7v3a2 2 0 0 1-2 2H7"/><path d="M3 12h.01"/><path d="M12 3h.01"/><path d="M12 16v.01"/><path d="M16 12h1"/><path d="M21 12v.01"/><path d="M12 21v-1"/></svg>',
@@ -65,6 +66,7 @@ const DEFAULT_SETTINGS = {
   taxRate: 5, // 5% default tax
   storeName: "Corner Counter HQ",
   receiptFooter: "Thank you for supporting our local counter!",
+  preferBluetoothPrint: false, // use BT printer when connected
 };
 
 const DEFAULT_COMPANIES = [
@@ -142,6 +144,11 @@ const state = {
   remoteResetStaffModal: null,
   itemNoteModal: null,
   installModalOpen: false,
+
+  // Bluetooth Printer State
+  btConnected: false,
+  btDeviceName: null,
+  btConnecting: false,
   analyticsTimeframe: "today", // 'today' | 'yesterday' | 'week' | 'month' | 'all'
 
   loginForm: {
@@ -1697,9 +1704,14 @@ function renderThermalReceiptModal() {
     '<div class="receipt-serrated-edge"></div>' +
     '</div>' +
     '</div>' +
-    '<div class="sheet-footer" style="display:flex;gap:8px;">' +
-    '<button class="pill-btn" style="flex:1;" data-action="print-receipt">' + ICONS.print + ' Print Receipt</button>' +
+    '<div class="sheet-footer" style="display:flex;flex-direction:column;gap:8px;">' +
+    (state.btConnected
+      ? '<button class="bt-print-btn" data-action="print-receipt-bluetooth">' + ICONS.bluetooth + ' Print via Bluetooth · <span class="bt-device-label">' + esc(state.btDeviceName || 'Printer') + '</span></button>'
+      : '') +
+    '<div style="display:flex;gap:8px;">' +
+    '<button class="pill-btn" style="flex:1;" data-action="print-receipt">' + ICONS.print + ' Browser Print</button>' +
     '<button class="btn-teal" style="flex:1.2;" data-action="dismiss-receipt">✓ Acknowledge (Done)</button>' +
+    '</div>' +
     '</div>' +
     '</div></div>'
   );
@@ -2097,6 +2109,45 @@ function renderItemNoteModal() {
   );
 }
 
+// ---------- Bluetooth Printer Settings Section ----------
+function renderBluetoothPrinterSection() {
+  const btSupported = typeof BluetoothPrinter !== 'undefined' && BluetoothPrinter.isSupported();
+  const connected = state.btConnected;
+  const deviceName = state.btDeviceName;
+  const connecting = state.btConnecting;
+
+  const statusDot = connected
+    ? '<span class="bt-status-dot connected"></span>'
+    : '<span class="bt-status-dot"></span>';
+
+  const statusText = connected
+    ? ('Connected · <strong>' + esc(deviceName || 'Unknown') + '</strong>')
+    : (connecting ? 'Connecting...' : 'Not connected');
+
+  const actionBtn = connecting
+    ? '<button class="bt-connect-btn" disabled style="opacity:0.6;cursor:not-allowed;">⏳ Connecting...</button>'
+    : (connected
+        ? '<button class="bt-disconnect-btn" data-action="disconnect-bluetooth-printer">Disconnect</button>'
+        : '<button class="bt-connect-btn" data-action="connect-bluetooth-printer">' + ICONS.bluetooth + ' Connect Bluetooth Printer</button>');
+
+  const supportNote = btSupported
+    ? ''
+    : '<div style="font-size:11px;color:#f59e0b;margin-top:8px;">⚠️ Web Bluetooth is not available in this browser. Use Chrome or Edge on desktop or Android.</div>';
+
+  return (
+    '<div style="margin-top:14px;padding:12px;background:var(--surface-raised);border-radius:12px;border:1px solid var(--border);">' +
+    '<div style="font-size:12px;font-weight:700;margin-bottom:6px;display:flex;align-items:center;gap:6px;">' + ICONS.bluetooth + ' Bluetooth Thermal Printer</div>' +
+    '<div style="font-size:12px;color:var(--text-muted);margin-bottom:10px;display:flex;align-items:center;gap:6px;">' + statusDot + statusText + '</div>' +
+    '<div style="display:flex;gap:8px;flex-wrap:wrap;">' +
+    actionBtn +
+    (connected ? '' : '') +
+    '</div>' +
+    supportNote +
+    '<div style="font-size:11px;color:var(--text-muted);margin-top:8px;">Works with any ESC/POS Bluetooth thermal printer (58mm or 80mm paper).</div>' +
+    '</div>'
+  );
+}
+
 function renderSettingsModal() {
   const s = state.settings;
   const comp = getCurrentCompany();
@@ -2126,6 +2177,7 @@ function renderSettingsModal() {
     '<label class="form-field"><span class="form-label">Receipt Footer Message</span>' +
     '<input id="setting-receipt-footer" class="form-input" type="text" value="' + esc(s.receiptFooter) + '" /></label>' +
     subSection +
+    renderBluetoothPrinterSection() +
     '<div style="margin-top:14px;padding:12px;background:var(--surface-raised);border-radius:12px;border:1px solid var(--border);">' +
     '<div style="font-size:12px;font-weight:700;margin-bottom:6px;display:flex;align-items:center;gap:6px;">☁️ Cloud Synchronization & Backup</div>' +
     '<div style="font-size:12px;color:var(--text-muted);margin-bottom:6px;">Status: <strong>' + (state.online ? "Online (Connected)" : "Offline (Disconnected)") + '</strong> · Pending Queue: <strong>' + state.pendingSyncQueue.length + ' item(s)</strong></div>' +
@@ -2697,6 +2749,66 @@ function attachAppEventHandlers() {
       case "print-receipt":
         window.print();
         break;
+      case "print-receipt-bluetooth": {
+        const sale = state.thermalReceiptSale;
+        if (!sale) break;
+        if (!state.btConnected) {
+          showToast("No Bluetooth printer connected. Go to Settings to connect.");
+          break;
+        }
+        showToast("Sending to printer...");
+        if (typeof BluetoothPrinter !== "undefined") {
+          BluetoothPrinter.printReceipt(sale, state.settings).then((result) => {
+            if (result.success) {
+              showToast("✅ Receipt sent to " + (state.btDeviceName || "printer") + "!");
+            } else {
+              showToast("❌ Print failed: " + (result.error || "Unknown error"));
+              // Reconcile state if printer disconnected
+              if (!BluetoothPrinter.getStatus().connected) {
+                state.btConnected = false;
+                state.btDeviceName = null;
+                render();
+              }
+            }
+          });
+        }
+        break;
+      }
+      case "connect-bluetooth-printer": {
+        if (typeof BluetoothPrinter === "undefined" || !BluetoothPrinter.isSupported()) {
+          showToast("⚠️ Web Bluetooth not supported. Use Chrome or Edge on desktop/Android.");
+          break;
+        }
+        state.btConnecting = true;
+        render();
+        BluetoothPrinter.connect().then((result) => {
+          state.btConnecting = false;
+          if (result.success) {
+            state.btConnected = true;
+            state.btDeviceName = result.deviceName;
+            showToast("🖨️ Connected to " + result.deviceName + "!");
+          } else {
+            state.btConnected = false;
+            state.btDeviceName = null;
+            if (result.error && result.error !== 'No device selected.') {
+              showToast("❌ " + result.error);
+            }
+          }
+          render();
+        });
+        break;
+      }
+      case "disconnect-bluetooth-printer": {
+        if (typeof BluetoothPrinter !== "undefined") {
+          BluetoothPrinter.disconnect().then(() => {
+            state.btConnected = false;
+            state.btDeviceName = null;
+            showToast("Bluetooth printer disconnected.");
+            render();
+          });
+        }
+        break;
+      }
       case "dismiss-receipt":
         state.thermalReceiptSale = null;
         render();
@@ -3297,4 +3409,15 @@ if (typeof navigator !== "undefined" && navigator.onLine) {
   setTimeout(() => {
     pullFromCloud(true);
   }, 100);
+}
+
+// Register Bluetooth Printer disconnect callback so the app state
+// stays in sync if the printer is turned off or walks out of range.
+if (typeof BluetoothPrinter !== 'undefined') {
+  BluetoothPrinter._onDisconnect = function () {
+    state.btConnected = false;
+    state.btDeviceName = null;
+    showToast('🖨️ Bluetooth printer disconnected.');
+    try { render(); } catch (e) {}
+  };
 }
